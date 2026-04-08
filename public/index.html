@@ -1,356 +1,984 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>农场 CDP 控制台</title>
   <style>
     :root {
-      --bg: #111827;
-      --elev: #1f2937;
-      --border: rgba(55, 65, 81, 0.6);
-      --text: #f3f4f6;
-      --muted: #9ca3af;
-      --accent: #22c55e;
-      --accent-dim: rgba(34, 197, 94, 0.12);
-      --btn: #3b82f6;
-      --warn: #eab308;
-      --err: #ef4444;
-      --panel: #0f172a;
+      --bg: #f4ecdc;
+      --bg-deep: #eadab8;
+      --panel: rgba(255, 251, 244, 0.9);
+      --panel-strong: #fffdf8;
+      --line: rgba(109, 81, 50, 0.16);
+      --line-strong: rgba(109, 81, 50, 0.26);
+      --text: #3b2e20;
+      --muted: #7a6651;
+      --accent: #4f8a3c;
+      --accent-strong: #3f6f30;
+      --soil: #8a5b32;
+      --soil-soft: rgba(138, 91, 50, 0.12);
+      --leaf-soft: rgba(79, 138, 60, 0.14);
+      --warn: #c18a1c;
+      --bad: #c65b3b;
+      --shadow: 0 18px 48px rgba(100, 73, 38, 0.12);
+      --radius-xl: 24px;
+      --radius-lg: 18px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
     }
-    [data-theme="light"] {
-      --bg: #f9fafb;
-      --elev: #ffffff;
-      --border: #e5e7eb;
-      --text: #111827;
-      --muted: #6b7280;
-      --accent: #16a34a;
-      --accent-dim: rgba(22, 163, 74, 0.1);
-      --btn: #2563eb;
-      --warn: #ca8a04;
-      --err: #dc2626;
-      --panel: #f3f4f6;
-    }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; }
-    body {
-      font-family: ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100dvh;
-      padding: 1rem 1.25rem 2rem;
-      max-width: 52rem;
-      margin-inline: auto;
-    }
-    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.25rem; }
-    .sub { color: var(--muted); font-size: 0.875rem; margin: 0 0 1.25rem; line-height: 1.5; }
 
-    .tabs {
-      display: flex;
-      gap: 0.25rem;
-      margin-bottom: 1rem;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 0.5rem;
+    * {
+      box-sizing: border-box;
     }
-    .tabs button {
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+    }
+
+    body {
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 0% 0%, rgba(113, 170, 88, 0.2), transparent 28%),
+        radial-gradient(circle at 100% 0%, rgba(186, 128, 52, 0.18), transparent 24%),
+        linear-gradient(180deg, #f8f0e3 0%, #f1e4ce 55%, #eddec6 100%);
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    code {
+      font-size: 0.88em;
+      background: rgba(95, 69, 39, 0.08);
+      border-radius: 6px;
+      padding: 0.12rem 0.36rem;
+    }
+
+    .page-shell {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 24px 18px 28px;
+    }
+
+    .hero {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr);
+      gap: 18px;
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background:
+        linear-gradient(135deg, rgba(255, 252, 246, 0.95), rgba(241, 228, 206, 0.88)),
+        linear-gradient(180deg, rgba(79, 138, 60, 0.05), rgba(138, 91, 50, 0.08));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -60px;
+      bottom: -80px;
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(79, 138, 60, 0.16) 0%, rgba(79, 138, 60, 0) 72%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      margin: 0 0 0.55rem;
+      color: var(--accent-strong);
+      font-size: 0.78rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0;
+      font-family: "Palatino Linotype", "Book Antiqua", "STKaiti", serif;
+      font-size: clamp(2rem, 4vw, 2.8rem);
+      line-height: 1.05;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .sub {
+      margin: 0.95rem 0 0;
+      max-width: 44rem;
+      font-size: 0.98rem;
+      line-height: 1.7;
+      color: var(--muted);
+    }
+
+    .hero-side {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .hero-note {
+      position: relative;
+      padding: 16px 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(79, 138, 60, 0.16);
+      background: rgba(255, 252, 247, 0.78);
+      backdrop-filter: blur(8px);
+    }
+
+    .hero-note.soft {
+      border-color: rgba(138, 91, 50, 0.16);
+      background: rgba(255, 247, 236, 0.7);
+    }
+
+    .note-k {
+      display: inline-block;
+      margin-bottom: 0.5rem;
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--accent-strong);
+      text-transform: uppercase;
+    }
+
+    .hero-note strong {
+      display: block;
+      font-size: 1rem;
+      line-height: 1.45;
+    }
+
+    .hero-note p {
+      margin: 0.5rem 0 0;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 18px 0 16px;
+    }
+
+    .status-chip {
+      padding: 14px 16px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
+      background: rgba(255, 252, 247, 0.82);
+      box-shadow: 0 10px 28px rgba(103, 76, 42, 0.08);
+      min-height: 86px;
+    }
+
+    .status-chip.wide {
+      grid-column: span 1;
+    }
+
+    .chip-label {
+      display: block;
+      margin-bottom: 0.45rem;
+      font-size: 0.76rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .chip-value {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      font-size: 0.93rem;
+      font-weight: 600;
+      line-height: 1.5;
+      min-height: 2.6rem;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #bca992;
+      flex: 0 0 auto;
+      box-shadow: 0 0 0 4px rgba(188, 169, 146, 0.14);
+    }
+
+    .dot.ok {
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(79, 138, 60, 0.16);
+    }
+
+    .dot.warn {
+      background: var(--warn);
+      box-shadow: 0 0 0 4px rgba(193, 138, 28, 0.14);
+    }
+
+    .dot.bad {
+      background: var(--bad);
+      box-shadow: 0 0 0 4px rgba(198, 91, 59, 0.14);
+    }
+
+    .tabbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding: 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 251, 244, 0.72);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 10px 24px rgba(101, 74, 40, 0.08);
+    }
+
+    .tab-btn {
       border: none;
       background: transparent;
       color: var(--muted);
-      padding: 0.45rem 0.85rem;
-      border-radius: 0.5rem;
+      padding: 0.7rem 1.15rem;
+      border-radius: 999px;
       cursor: pointer;
-      font-size: 0.9rem;
-      font-family: inherit;
+      font-size: 0.94rem;
+      font-weight: 700;
+      transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
     }
-    .tabs button:hover { background: var(--panel); color: var(--text); }
-    .tabs button.on { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
 
-    .panel { display: none; }
-    .panel.on { display: block; }
+    .tab-btn:hover {
+      color: var(--text);
+      background: rgba(79, 138, 60, 0.08);
+    }
 
-    .grid {
+    .tab-btn.on {
+      color: #fdfbf6;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      box-shadow: 0 10px 22px rgba(79, 138, 60, 0.22);
+    }
+
+    .panel {
+      display: none;
+    }
+
+    .panel.on {
+      display: block;
+      animation: fadeIn 180ms ease;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .panel-grid {
       display: grid;
-      gap: 0.75rem;
-      grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-      margin-bottom: 1rem;
+      gap: 16px;
     }
-    .stat {
-      background: var(--elev);
-      border: 1px solid var(--border);
-      border-radius: 0.75rem;
-      padding: 0.75rem 0.9rem;
+
+    .preview-grid {
+      grid-template-columns: minmax(0, 1.4fr) 340px;
+      align-items: start;
     }
-    .stat .k { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.35rem; }
-    .stat .v { font-size: 0.9rem; font-weight: 500; word-break: break-word; }
-    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 0.35rem; vertical-align: middle; }
-    .dot.ok { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-    .dot.warn { background: var(--warn); }
-    .dot.bad { background: var(--err); }
+
+    .friend-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: start;
+    }
+
+    .auto-grid {
+      grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+      align-items: start;
+    }
+
+    .span-full {
+      grid-column: 1 / -1;
+    }
+
+    .stack {
+      display: grid;
+      gap: 16px;
+    }
 
     .card {
-      background: var(--elev);
-      border: 1px solid var(--border);
-      border-radius: 0.75rem;
-      padding: 1rem;
-      margin-bottom: 1rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      backdrop-filter: blur(10px);
     }
-    .card h2 { margin: 0 0 0.65rem; font-size: 0.95rem; font-weight: 600; }
-    .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
-    .row:last-child { margin-bottom: 0; }
+
+    .stage-card {
+      padding-bottom: 16px;
+    }
+
+    .card h2 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .card-head p,
+    .hint {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.65;
+    }
+
+    .hint {
+      margin: 0.65rem 0 0;
+    }
+
+    .summary-note {
+      margin: 0.9rem 0 0;
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, rgba(79, 138, 60, 0.08), rgba(138, 91, 50, 0.06));
+      border: 1px solid rgba(79, 138, 60, 0.12);
+      color: var(--text);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 0.8rem;
+    }
+
+    .metric-card {
+      padding: 14px 12px;
+      border-radius: var(--radius-md);
+      background: var(--panel-strong);
+      border: 1px solid rgba(109, 81, 50, 0.1);
+    }
+
+    .metric-k {
+      display: block;
+      font-size: 0.76rem;
+      color: var(--muted);
+      margin-bottom: 0.45rem;
+      letter-spacing: 0.04em;
+    }
+
+    .metric-v {
+      display: block;
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--soil);
+      line-height: 1;
+    }
+
+    .field-block {
+      display: block;
+    }
+
+    .field-block span {
+      display: block;
+      margin-bottom: 0.45rem;
+      font-size: 0.83rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .field,
+    .field-block input,
+    .field-block select {
+      width: 100%;
+      min-height: 44px;
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(109, 81, 50, 0.16);
+      background: rgba(255, 253, 248, 0.96);
+      color: var(--text);
+      padding: 0.68rem 0.78rem;
+      outline: none;
+      transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+    }
+
+    .field:focus,
+    .field-block input:focus,
+    .field-block select:focus {
+      border-color: rgba(79, 138, 60, 0.42);
+      box-shadow: 0 0 0 4px rgba(79, 138, 60, 0.12);
+    }
+
+    .input-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .input-grid.compact {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .input-grid.single {
+      grid-template-columns: 1fr;
+      margin-top: 12px;
+    }
+
+    .check-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-bottom: 12px;
+    }
+
+    .check-card {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      padding: 14px 15px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(109, 81, 50, 0.12);
+      background: linear-gradient(135deg, rgba(255, 253, 248, 0.9), rgba(245, 235, 219, 0.88));
+      cursor: pointer;
+    }
+
+    .check-card input {
+      width: 18px;
+      height: 18px;
+      margin: 2px 0 0;
+      accent-color: var(--accent);
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+
+    .check-card strong {
+      display: block;
+      font-size: 0.92rem;
+      line-height: 1.35;
+    }
+
+    .check-card small {
+      display: block;
+      margin-top: 0.25rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.55;
+    }
+
+    .check-card.inline {
+      align-items: center;
+    }
+
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    button.action,
+    button.ghost {
+      border: none;
+      border-radius: 999px;
+      min-height: 42px;
+      padding: 0.7rem 1rem;
+      cursor: pointer;
+      transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+      font-weight: 700;
+    }
+
+    button.action:hover,
+    button.ghost:hover {
+      transform: translateY(-1px);
+    }
 
     button.action {
-      background: var(--btn);
-      color: #fff;
-      border: none;
-      padding: 0.45rem 0.85rem;
-      border-radius: 0.5rem;
-      font-size: 0.85rem;
-      cursor: pointer;
-      font-family: inherit;
+      color: #fefcf7;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      box-shadow: 0 10px 20px rgba(79, 138, 60, 0.18);
     }
-    button.action:hover { filter: brightness(1.08); }
-    button.action.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
-    button.action.warn { background: var(--warn); color: #111827; }
-    button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 0.35rem 0.65rem; border-radius: 0.45rem; font-size: 0.75rem; cursor: pointer; font-family: inherit; }
-    .field {
-      min-height: 2.25rem;
-      background: var(--panel);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 0.5rem;
-      padding: 0.45rem 0.65rem;
-      font-size: 0.85rem;
-      font-family: inherit;
-    }
-    .field.grow { flex: 1 1 16rem; min-width: 16rem; }
-    .field.num { width: 9rem; }
-    .inline-check {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      font-size: 0.85rem;
-      color: var(--text);
-      padding: 0.2rem 0;
-    }
-    .inline-check input { width: 1rem; height: 1rem; cursor: pointer; }
 
-    pre.log {
-      background: var(--panel);
-      padding: 0.85rem;
-      border-radius: 0.5rem;
-      overflow: auto;
-      font-size: 0.78rem;
-      line-height: 1.45;
-      max-height: min(360px, 42vh);
-      min-height: 100px;
-      border: 1px solid var(--border);
-      margin: 0;
-      white-space: pre-wrap;
-      word-break: break-word;
+    button.action.secondary {
+      color: var(--text);
+      background: #fffaf1;
+      border: 1px solid rgba(109, 81, 50, 0.16);
+      box-shadow: none;
     }
-    .hint { font-size: 0.8rem; color: var(--muted); margin-top: 0.65rem; line-height: 1.45; }
-    code { font-size: 0.85em; background: var(--panel); padding: 0.1rem 0.35rem; border-radius: 0.25rem; }
+
+    button.ghost {
+      color: var(--soil);
+      background: rgba(138, 91, 50, 0.08);
+      border: 1px solid rgba(138, 91, 50, 0.14);
+      min-height: 38px;
+      padding-inline: 0.9rem;
+    }
+
     .preview-stage {
-      background: #020617;
-      border: 1px solid var(--border);
-      border-radius: 0.75rem;
-      overflow: hidden;
-      min-height: 240px;
       display: grid;
       place-items: center;
+      min-height: min(66vh, 780px);
+      margin-top: 12px;
+      border-radius: calc(var(--radius-xl) - 4px);
+      border: 1px solid rgba(59, 46, 32, 0.18);
+      background:
+        linear-gradient(180deg, rgba(18, 27, 16, 0.95), rgba(8, 15, 7, 0.98)),
+        radial-gradient(circle at top, rgba(104, 157, 82, 0.12), transparent 30%);
+      overflow: hidden;
     }
+
     .preview-stage img {
-      width: 100%;
-      max-height: min(62vh, 760px);
+      width: auto;
+      max-width: 100%;
+      max-height: min(66vh, 780px);
       object-fit: contain;
       display: block;
       background: #000;
+      touch-action: none;
     }
+
+    .preview-stage.interactive img {
+      cursor: crosshair;
+    }
+
     .preview-empty {
-      color: var(--muted);
-      font-size: 0.9rem;
-      padding: 2rem 1rem;
+      padding: 2.5rem 1.5rem;
       text-align: center;
+      color: rgba(255, 247, 232, 0.72);
+      font-size: 0.94rem;
+      line-height: 1.6;
     }
 
-    .sw {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      padding: 0.65rem 0;
-      border-bottom: 1px solid var(--border);
+    pre.log {
+      margin: 0;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(109, 81, 50, 0.12);
+      background: #fffaf2;
+      padding: 14px 16px;
+      color: #4a3a2a;
+      font-size: 0.8rem;
+      line-height: 1.6;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
-    .sw:last-child { border-bottom: none; }
-    .sw span { font-size: 0.9rem; }
-    .sw small { display: block; color: var(--muted); font-size: 0.75rem; margin-top: 0.2rem; }
-    .sw input[type="checkbox"] { width: 1.1rem; height: 1.1rem; cursor: pointer; }
 
-    .top-actions { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; }
+    pre.log.side {
+      min-height: 480px;
+      max-height: 68vh;
+    }
+
+    pre.log.full {
+      min-height: 62vh;
+      max-height: 72vh;
+    }
+
+    @media (max-width: 1080px) {
+      .preview-grid,
+      .auto-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 920px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .status-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .friend-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .input-grid,
+      .input-grid.compact,
+      .check-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .preview-stage {
+        min-height: min(58vh, 640px);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page-shell {
+        padding: 16px 12px 22px;
+      }
+
+      .hero,
+      .card {
+        padding: 16px;
+      }
+
+      .status-strip,
+      .metric-grid,
+      .input-grid,
+      .input-grid.compact,
+      .check-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .tabbar {
+        border-radius: 20px;
+      }
+
+      .tab-btn {
+        width: 100%;
+        text-align: center;
+      }
+
+      .card-head {
+        flex-direction: column;
+      }
+
+      pre.log.side,
+      pre.log.full {
+        min-height: 320px;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="top-actions">
-    <button type="button" class="ghost" id="btnTheme" title="浅色/深色">主题</button>
+  <div class="page-shell">
+    <!-- <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Farm CDP Control</p>
+        <h1>农场控制台</h1>
+        <p class="sub">
+          上下文就绪后会自动注入 <code>button.js</code>。页面只保留画面预览、好友农场、自动农场和消息日志，
+          避免之前那种一整页很长的操作台。
+        </p>
+      </div>
+      <div class="hero-side">
+        <div class="hero-note">
+          <span class="note-k">当前方式</span>
+          <strong>CDP 直连画面与输入事件</strong>
+          <p>预览、点击、拖动、好友跳转和自动化都走现有网关接口，不额外堆新的业务面板。</p>
+        </div>
+        <div class="hero-note soft">
+          <span class="note-k">自动注入</span>
+          <strong>小游戏重建执行上下文后会补注一次</strong>
+          <p>不再保留手动注入按钮；页面会根据健康状态自动判断何时注入脚本。</p>
+        </div>
+      </div>
+    </header> -->
+
+    <section class="status-strip">
+      <div class="status-chip">
+        <span class="chip-label">网关</span>
+        <div class="chip-value">
+          <span class="dot" id="dotHttp"></span>
+          <span id="txtHttp">检测中…</span>
+        </div>
+      </div>
+      <div class="status-chip">
+        <span class="chip-label">WebSocket</span>
+        <div class="chip-value">
+          <span class="dot" id="dotWs"></span>
+          <span id="txtWs">未连接</span>
+        </div>
+      </div>
+      <div class="status-chip">
+        <span class="chip-label">上下文</span>
+        <div class="chip-value">
+          <span class="dot" id="dotContext"></span>
+          <span id="stContext">等待探测</span>
+        </div>
+      </div>
+      <div class="status-chip">
+        <span class="chip-label">注入</span>
+        <div class="chip-value">
+          <span class="dot" id="dotInject"></span>
+          <span id="stInject">等待上下文就绪</span>
+        </div>
+      </div>
+    </section>
+
+    <nav class="tabbar" role="tablist">
+      <button type="button" class="tab-btn on" data-tab="preview" role="tab">画面预览</button>
+      <button type="button" class="tab-btn" data-tab="friends" role="tab">好友农场</button>
+      <button type="button" class="tab-btn" data-tab="automation" role="tab">自动农场</button>
+      <button type="button" class="tab-btn" data-tab="logs" role="tab">消息日志</button>
+    </nav>
+
+    <section class="panel on" id="panel-preview" data-tab="preview">
+      <div class="panel-grid preview-grid">
+        <article class="card stage-card">
+          <div class="card-head">
+            <div>
+              <h2>游戏画面预览</h2>
+              <p class="hint">点击预览可直接发点击，拖动预览可发送实时滑动，均直接走 CDP 输入事件。</p>
+            </div>
+            <button type="button" class="ghost" id="btnPreviewCapture">单帧截图</button>
+          </div>
+          <p class="summary-note" id="txtPreviewState">未加载预览状态</p>
+          <div class="preview-stage">
+            <img id="imgPreview" alt="游戏画面预览" style="display:none" />
+            <div class="preview-empty" id="previewEmpty">尚未收到画面帧。开始预览后，这里会持续显示小游戏当前画面。</div>
+          </div>
+          <p class="hint">建议先开启预览，再勾选“在预览上直接操作游戏”，这样更容易对齐点击和滑动坐标。</p>
+        </article>
+
+        <aside class="stack">
+          <article class="card">
+            <h2>预览参数</h2>
+            <div class="input-grid compact" style="margin-top:12px">
+              <label class="field-block">
+                <span>图片格式</span>
+                <select id="selPreviewFormat">
+                  <option value="jpeg">JPEG</option>
+                  <option value="png">PNG</option>
+                </select>
+              </label>
+              <label class="field-block">
+                <span>隔帧</span>
+                <input type="number" min="1" max="10" id="iptPreviewNth" placeholder="2" />
+              </label>
+              <label class="field-block">
+                <span>最大宽度</span>
+                <input type="number" min="64" id="iptPreviewWidth" placeholder="720" />
+              </label>
+              <label class="field-block">
+                <span>最大高度</span>
+                <input type="number" min="64" id="iptPreviewHeight" placeholder="1280" />
+              </label>
+              <label class="field-block">
+                <span>质量</span>
+                <input type="number" min="1" max="100" id="iptPreviewQuality" placeholder="60" />
+              </label>
+            </div>
+            <div class="action-row">
+              <button type="button" class="action" id="btnPreviewStart">开始预览</button>
+              <button type="button" class="action secondary" id="btnPreviewStop">停止预览</button>
+              <button type="button" class="action secondary" id="btnPreviewStatus">刷新预览状态</button>
+            </div>
+          </article>
+
+          <article class="card">
+            <h2>预览交互</h2>
+            <label class="check-card inline" style="margin-top:12px">
+              <input type="checkbox" id="chkPreviewClick" />
+              <div>
+                <strong>在预览上直接操作游戏</strong>
+                <small>勾选后，短按会发点击；按住并拖动会发送实时触摸移动。</small>
+              </div>
+            </label>
+            <div class="input-grid single">
+              <label class="field-block">
+                <span>最短按住时长(ms)</span>
+                <input type="number" min="0" id="iptPreviewHold" placeholder="32" />
+              </label>
+            </div>
+          </article>
+        </aside>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-friends" data-tab="friends">
+      <div class="panel-grid friend-grid">
+        <article class="card span-full">
+          <div class="card-head">
+            <div>
+              <h2>好友农场总览</h2>
+              <p class="hint">先刷新好友列表，再选择或输入目标好友进入农场。</p>
+            </div>
+            <button type="button" class="action" id="btnFriends">获取好友列表</button>
+          </div>
+
+          <div class="metric-grid">
+            <div class="metric-card">
+              <span class="metric-k">好友数</span>
+              <span class="metric-v" id="friendMetricTotal">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-k">可偷好友</span>
+              <span class="metric-v" id="friendMetricCollectable">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-k">可浇水</span>
+              <span class="metric-v" id="friendMetricWater">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-k">可除草</span>
+              <span class="metric-v" id="friendMetricGrass">0</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-k">可杀虫</span>
+              <span class="metric-v" id="friendMetricBug">0</span>
+            </div>
+          </div>
+
+          <p class="summary-note" id="txtFriendSummary">未加载好友列表</p>
+        </article>
+
+        <article class="card">
+          <h2>从已加载列表进入</h2>
+          <p class="hint">下拉框会显示好友名、gid 和当前可执行动作数量。</p>
+          <label class="field-block" style="margin-top:12px">
+            <span>选择好友</span>
+            <select id="selFriend" disabled>
+              <option value="">请先获取好友列表</option>
+            </select>
+          </label>
+          <div class="action-row">
+            <button type="button" class="action" id="btnEnterFriend">进入好友农场</button>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>手动输入目标</h2>
+          <p class="hint">优先使用这里的输入值；留空时才会使用左侧下拉框。</p>
+          <label class="field-block" style="margin-top:12px">
+            <span>gid / 好友名 / 备注</span>
+            <input type="text" id="iptFriendTarget" placeholder="输入 gid / 好友名 / 备注" />
+          </label>
+          <p class="hint">适合已知 gid 的情况下直接跳转，不必每次都刷新列表。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-automation" data-tab="automation">
+      <div class="panel-grid auto-grid">
+        <article class="card">
+          <div class="card-head">
+            <div>
+              <h2>自动农场</h2>
+              <p class="summary-note" id="txtAutoFarmState">未加载自动化状态</p>
+            </div>
+          </div>
+
+          <div class="check-grid">
+            <label class="check-card">
+              <input type="checkbox" id="autoOwnEnabled" />
+              <div>
+                <strong>自己农场</strong>
+                <small>定时执行一键收获、浇水、除草、杀虫。</small>
+              </div>
+            </label>
+            <label class="check-card">
+              <input type="checkbox" id="autoFriendEnabled" />
+              <div>
+                <strong>好友偷菜</strong>
+                <small>定时扫描好友列表，进入可偷好友农场执行一键摘取。</small>
+              </div>
+            </label>
+            <label class="check-card">
+              <input type="checkbox" id="autoRefreshFriendList" />
+              <div>
+                <strong>每轮刷新好友列表</strong>
+                <small>开启后每次好友轮次都会重新获取列表。</small>
+              </div>
+            </label>
+            <label class="check-card">
+              <input type="checkbox" id="autoReturnHome" />
+              <div>
+                <strong>好友轮次后回家</strong>
+                <small>执行完好友扫描后自动回到自己农场。</small>
+              </div>
+            </label>
+            <label class="check-card">
+              <input type="checkbox" id="autoStopOnError" />
+              <div>
+                <strong>出错后结束当前轮次</strong>
+                <small>适合调试阶段，避免错误状态下继续连跑。</small>
+              </div>
+            </label>
+          </div>
+
+          <div class="input-grid">
+            <label class="field-block">
+              <span>自己间隔(秒)</span>
+              <input type="number" min="5" id="autoOwnIntervalSec" placeholder="30" />
+            </label>
+            <label class="field-block">
+              <span>好友间隔(秒)</span>
+              <input type="number" min="10" id="autoFriendIntervalSec" placeholder="90" />
+            </label>
+            <label class="field-block">
+              <span>每轮好友数</span>
+              <input type="number" min="1" id="autoMaxFriends" placeholder="5" />
+            </label>
+            <label class="field-block">
+              <span>进场等待(ms)</span>
+              <input type="number" min="0" id="autoEnterWaitMs" placeholder="1800" />
+            </label>
+            <label class="field-block">
+              <span>动作等待(ms)</span>
+              <input type="number" min="0" id="autoActionWaitMs" placeholder="1200" />
+            </label>
+          </div>
+
+          <div class="action-row">
+            <button type="button" class="action secondary" id="btnAutoSave">保存配置</button>
+            <button type="button" class="action" id="btnAutoRunOnce">立即执行一轮</button>
+            <button type="button" class="action" id="btnAutoStart">开始自动化</button>
+            <button type="button" class="action secondary" id="btnAutoStop">停止自动化</button>
+            <button type="button" class="action secondary" id="btnAutoRefresh">刷新状态</button>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>最近执行</h2>
+          <p class="hint">服务端常驻执行。页面只是查看和控制入口，不依赖当前 tab 一直停留。</p>
+          <pre class="log side" id="logAutoFarm"></pre>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-logs" data-tab="logs">
+      <article class="card">
+        <div class="card-head">
+          <div>
+            <h2>消息日志</h2>
+            <p class="hint">WebSocket 发送、接口返回、自动注入结果都会汇总到这里，排查时看这一页即可。</p>
+          </div>
+          <button type="button" class="ghost" id="btnClearLog">清空日志</button>
+        </div>
+        <pre class="log full" id="log"></pre>
+      </article>
+    </section>
   </div>
-
-  <h1>农场 CDP 控制台</h1>
-  <p class="sub">本机 <code>npm start</code> 后，用微信打开目标小游戏并保持前台；下方通过 WebSocket <code>/ws</code> 控制注入与脚本。</p>
-
-  <div class="tabs" role="tablist">
-    <button type="button" class="on" data-tab="overview" role="tab">总览</button>
-    <button type="button" data-tab="settings" role="tab">农场功能配置</button>
-  </div>
-
-  <section class="panel on" id="panel-overview" data-tab="overview">
-    <div class="grid" id="statusGrid">
-      <div class="stat">
-        <div class="k">网关服务</div>
-        <div class="v" id="stHttp"><span class="dot" id="dotHttp"></span><span id="txtHttp">检测中…</span></div>
-      </div>
-      <div class="stat">
-        <div class="k">WebSocket</div>
-        <div class="v" id="stWs"><span class="dot" id="dotWs"></span><span id="txtWs">未连接</span></div>
-      </div>
-      <div class="stat">
-        <div class="k">CDP 会话</div>
-        <div class="v" id="stCdp">—</div>
-      </div>
-      <div class="stat">
-        <div class="k">游戏内 gameCtl</div>
-        <div class="v" id="stGameCtl">未检测</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>本机启动</h2>
-      <p class="hint" style="margin-top:0">浏览器无法替你启动 Node，请在项目目录执行：</p>
-      <pre class="log" style="max-height:none;min-height:auto">npm start</pre>
-      <p class="hint">若端口被占用，请先结束旧的 Node 进程。DevTools 需连接 CDP 代理（见终端提示的 <code>ws://127.0.0.1:62000</code>）。</p>
-    </div>
-
-    <div class="card">
-      <h2>快捷操作</h2>
-      <div class="row">
-        <button type="button" class="action" id="btnPing">Ping</button>
-        <button type="button" class="action warn" id="btnInject">注入 button.js</button>
-        <button type="button" class="action" id="btnCheck">检测 gameCtl</button>
-        <button type="button" class="action" id="btnLand">获取土地信息</button>
-        <button type="button" class="action secondary" id="btnRefreshGame">刷新游戏内状态</button>
-        <button type="button" class="action secondary" id="btnClear">清空日志</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>游戏画面预览</h2>
-      <div class="row">
-        <select class="field num" id="selPreviewFormat">
-          <option value="jpeg">JPEG</option>
-          <option value="png">PNG</option>
-        </select>
-        <input type="number" min="64" class="field num" id="iptPreviewWidth" placeholder="宽度" />
-        <input type="number" min="64" class="field num" id="iptPreviewHeight" placeholder="高度" />
-        <input type="number" min="1" max="100" class="field num" id="iptPreviewQuality" placeholder="质量" />
-        <input type="number" min="1" max="10" class="field num" id="iptPreviewNth" placeholder="隔帧" />
-      </div>
-      <div class="row">
-        <button type="button" class="action" id="btnPreviewStart">开始预览</button>
-        <button type="button" class="action secondary" id="btnPreviewStop">停止预览</button>
-        <button type="button" class="action secondary" id="btnPreviewCapture">单帧截图</button>
-        <button type="button" class="action secondary" id="btnPreviewStatus">刷新预览状态</button>
-      </div>
-      <p class="hint" id="txtPreviewState">未加载预览状态</p>
-      <div class="preview-stage">
-        <img id="imgPreview" alt="游戏画面预览" style="display:none" />
-        <div class="preview-empty" id="previewEmpty">尚未收到画面帧</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>好友农场</h2>
-      <p class="hint" style="margin-top:0">先注入 <code>button.js</code>，再获取好友列表。进入时优先使用手动输入，其次使用下拉框。</p>
-      <div class="row">
-        <button type="button" class="action" id="btnFriends">获取好友列表</button>
-        <select class="field grow" id="selFriend" disabled>
-          <option value="">请先获取好友列表</option>
-        </select>
-      </div>
-      <div class="row">
-        <input type="text" class="field grow" id="iptFriendTarget" placeholder="输入 gid / 好友名 / 备注（留空则使用下拉框）" />
-        <button type="button" class="action" id="btnEnterFriend">进入好友农场</button>
-      </div>
-      <p class="hint" id="txtFriendSummary">未加载好友列表</p>
-    </div>
-
-    <div class="card">
-      <h2>自动农场</h2>
-      <p class="hint" style="margin-top:0">由网关常驻执行。开始后即使不操作页面也会继续按间隔扫描；建议先确认 <code>button.js</code> 注入成功。</p>
-      <div class="row">
-        <label class="inline-check"><input type="checkbox" id="autoOwnEnabled" />自己农场</label>
-        <label class="inline-check"><input type="checkbox" id="autoFriendEnabled" />好友偷菜</label>
-        <label class="inline-check"><input type="checkbox" id="autoRefreshFriendList" />每轮刷新好友列表</label>
-        <label class="inline-check"><input type="checkbox" id="autoReturnHome" />好友轮次后回家</label>
-      </div>
-      <div class="row">
-        <input type="number" min="5" class="field num" id="autoOwnIntervalSec" placeholder="自己间隔(秒)" />
-        <input type="number" min="10" class="field num" id="autoFriendIntervalSec" placeholder="好友间隔(秒)" />
-        <input type="number" min="1" class="field num" id="autoMaxFriends" placeholder="每轮好友数" />
-        <input type="number" min="0" class="field num" id="autoEnterWaitMs" placeholder="进场等待ms" />
-        <input type="number" min="0" class="field num" id="autoActionWaitMs" placeholder="动作等待ms" />
-      </div>
-      <div class="row">
-        <label class="inline-check"><input type="checkbox" id="autoStopOnError" />出错后结束当前轮次</label>
-      </div>
-      <div class="row">
-        <button type="button" class="action secondary" id="btnAutoSave">保存自动化配置</button>
-        <button type="button" class="action" id="btnAutoRunOnce">立即执行一轮</button>
-        <button type="button" class="action" id="btnAutoStart">开始自动化</button>
-        <button type="button" class="action secondary" id="btnAutoStop">停止自动化</button>
-        <button type="button" class="action secondary" id="btnAutoRefresh">刷新状态</button>
-      </div>
-      <p class="hint" id="txtAutoFarmState">未加载自动化状态</p>
-      <pre class="log" id="logAutoFarm" style="max-height:220px"></pre>
-    </div>
-
-    <div class="card">
-      <h2>消息日志</h2>
-      <pre class="log" id="log"></pre>
-      <p class="hint">CDP 状态来自 <code>/api/health</code>；<code>gameCtl</code> 需注入成功且小游戏在前台。</p>
-    </div>
-  </section>
-
-  <section class="panel" id="panel-settings" data-tab="settings">
-    <div class="card">
-      <h2>开关（保存到服务端 <code>data/farm-config.json</code>）</h2>
-      <p class="hint" style="margin-top:0">脚本侧读取方式可后续在 <code>button.js</code> 中对接；此处先持久化配置。</p>
-      <div id="farmSwitches"></div>
-      <div class="row" style="margin-top:0.75rem">
-        <button type="button" class="action secondary" id="btnReloadConfig">从服务器重新加载</button>
-      </div>
-    </div>
-  </section>
 
   <script>
     (function () {
       const WS_PATH = "/ws";
-      const LS_THEME = "farm-cdp-theme";
       const LS_CFG_CACHE = "farm-cdp-farm-config-cache";
-
-      const FARM_KEYS = [
-        { key: "autoInjectButton", label: "连接后自动注入 button.js", help: "需脚本与网关配合实现，当前仅占位" },
-        { key: "showLandOverlay", label: "显示土地信息浮层", help: "游戏内 UI，占位" },
-        { key: "enableOneClickHarvest", label: "启用一键收菜相关逻辑", help: "占位" },
-        { key: "enableFriendSteal", label: "启用好友互动（偷菜等）", help: "占位，默认关闭" },
-        { key: "verboseLog", label: "详细日志", help: "占位" },
-      ];
+      const HEALTH_POLL_MS = 2500;
+      const AUTO_FARM_POLL_MS = 5000;
 
       const logEl = document.getElementById("log");
       const dotWs = document.getElementById("dotWs");
       const txtWs = document.getElementById("txtWs");
       const dotHttp = document.getElementById("dotHttp");
       const txtHttp = document.getElementById("txtHttp");
-      const stCdp = document.getElementById("stCdp");
-      const stGameCtl = document.getElementById("stGameCtl");
+      const dotContext = document.getElementById("dotContext");
+      const stContext = document.getElementById("stContext");
+      const dotInject = document.getElementById("dotInject");
+      const stInject = document.getElementById("stInject");
       const selFriend = document.getElementById("selFriend");
       const iptFriendTarget = document.getElementById("iptFriendTarget");
       const txtFriendSummary = document.getElementById("txtFriendSummary");
@@ -359,11 +987,14 @@
       const txtPreviewState = document.getElementById("txtPreviewState");
       const imgPreview = document.getElementById("imgPreview");
       const previewEmpty = document.getElementById("previewEmpty");
+      const previewStage = document.querySelector(".preview-stage");
       const selPreviewFormat = document.getElementById("selPreviewFormat");
       const iptPreviewWidth = document.getElementById("iptPreviewWidth");
       const iptPreviewHeight = document.getElementById("iptPreviewHeight");
       const iptPreviewQuality = document.getElementById("iptPreviewQuality");
       const iptPreviewNth = document.getElementById("iptPreviewNth");
+      const chkPreviewClick = document.getElementById("chkPreviewClick");
+      const iptPreviewHold = document.getElementById("iptPreviewHold");
       const autoOwnEnabled = document.getElementById("autoOwnEnabled");
       const autoFriendEnabled = document.getElementById("autoFriendEnabled");
       const autoRefreshFriendList = document.getElementById("autoRefreshFriendList");
@@ -381,11 +1012,37 @@
       let friendListCache = [];
       let autoFarmState = null;
       let previewState = null;
+      let lastPreviewFrameMeta = null;
+      let previewPointer = null;
+      let lastHealth = null;
       const pendingTags = new Map();
+      const autoInject = {
+        path: "button.js",
+        inFlight: false,
+        injected: false,
+        contextKey: "",
+        attemptedContextKey: "",
+        lastError: "",
+        lastOkAt: "",
+      };
+
+      function formatClock(dateLike) {
+        const date = dateLike ? new Date(dateLike) : new Date();
+        if (Number.isNaN(date.getTime())) return String(dateLike || "");
+        const time = date.toLocaleTimeString("zh-CN", { hour12: false });
+        const ms = String(date.getMilliseconds()).padStart(3, "0");
+        return time + "." + ms;
+      }
+
+      function formatDateTime(dateLike) {
+        if (!dateLike) return "";
+        const date = new Date(dateLike);
+        if (Number.isNaN(date.getTime())) return String(dateLike);
+        return date.toLocaleString("zh-CN", { hour12: false });
+      }
 
       function appendLine(msg, obj) {
-        const t = new Date().toISOString().slice(11, 23);
-        let line = "[" + t + "] " + msg;
+        let line = "[" + formatClock() + "] " + msg;
         if (obj !== undefined) {
           line += "\n" + (typeof obj === "string" ? obj : JSON.stringify(obj, null, 2));
         }
@@ -393,13 +1050,99 @@
         logEl.scrollTop = logEl.scrollHeight;
       }
 
+      function setDotState(el, state) {
+        el.className = "dot" + (state ? " " + state : "");
+      }
+
+      function wsUrl() {
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        return proto + "//" + location.host + WS_PATH;
+      }
+
+      function isQuietPreviewOp(op) {
+        return op === "previewDragMove";
+      }
+
+      function summarizeWsMessageForLog(data, tag) {
+        if (!data || typeof data !== "object") return data;
+        if (data.event === "previewFrame") return null;
+        if (data.event === "previewState") {
+          return {
+            event: data.event,
+            state: data.state ? {
+              running: data.state.running,
+              subscriberCount: data.state.subscriberCount,
+              lastFrameAt: data.state.lastFrameAt,
+              lastError: data.state.lastError,
+              options: data.state.options,
+            } : null,
+            extra: data.extra,
+          };
+        }
+        if (tag === "previewCapture" && data.ok && data.result) {
+          return {
+            id: data.id,
+            ok: true,
+            result: {
+              ts: data.result.ts,
+              mediaType: data.result.mediaType,
+              meta: data.result.meta,
+              options: data.result.options,
+            },
+          };
+        }
+        if ((tag === "previewStart" || tag === "previewStop" || tag === "previewStatus") && data.ok && data.result) {
+          return {
+            id: data.id,
+            ok: true,
+            result: {
+              running: data.result.running,
+              subscriberCount: data.result.subscriberCount,
+              lastFrameAt: data.result.lastFrameAt,
+              lastError: data.result.lastError,
+              options: data.result.options,
+            },
+          };
+        }
+        if ((tag === "previewTap" || tag === "previewDragStart" || tag === "previewDragEnd" || tag === "previewSwipe") && data.ok && data.result) {
+          const nested = data.result.result && typeof data.result.result === "object" ? data.result.result : {};
+          return {
+            id: data.id,
+            ok: true,
+            result: Object.assign({}, data.result, {
+              mode: nested.mode || data.result.mode || null,
+              fallbackFrom: nested.fallbackFrom || data.result.fallbackFrom || null,
+            }),
+          };
+        }
+        if (tag === "previewDragMove") {
+          return null;
+        }
+        return data;
+      }
+
+      function send(payload, tag) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          appendLine("未连接，无法发送", payload);
+          return false;
+        }
+        const id = ++reqId;
+        if (tag !== undefined && tag !== null) {
+          pendingTags.set(String(id), tag);
+        }
+        const body = Object.assign({ id: String(id) }, payload);
+        if (!isQuietPreviewOp(body.op)) appendLine("→ 发送", body);
+        ws.send(JSON.stringify(body));
+        return true;
+      }
+
       function buildFriendLabel(item) {
         if (!item) return "未知好友";
-        var parts = [];
+        const parts = [];
         parts.push(item.displayName || item.name || item.remark || ("gid=" + item.gid));
         if (item.gid != null) parts.push("gid=" + item.gid);
         if (item.level != null && !Number.isNaN(Number(item.level))) parts.push("Lv." + item.level);
-        var work = item.workCounts || {};
+        const work = item.workCounts || {};
         if ((work.collect || 0) > 0) parts.push("可摘" + work.collect);
         if ((work.water || 0) > 0) parts.push("浇水" + work.water);
         if ((work.eraseGrass || 0) > 0) parts.push("除草" + work.eraseGrass);
@@ -407,31 +1150,41 @@
         return parts.join(" | ");
       }
 
+      function updateFriendMetrics(payload) {
+        const counts = payload && payload.counts ? payload.counts : {};
+        document.getElementById("friendMetricTotal").textContent = String(friendListCache.length || 0);
+        document.getElementById("friendMetricCollectable").textContent = String(counts.collectableFriends || 0);
+        document.getElementById("friendMetricWater").textContent = String(counts.waterableFriends || 0);
+        document.getElementById("friendMetricGrass").textContent = String(counts.eraseGrassFriends || 0);
+        document.getElementById("friendMetricBug").textContent = String(counts.killBugFriends || 0);
+      }
+
       function renderFriendList(payload) {
         friendListCache = payload && Array.isArray(payload.list) ? payload.list : [];
         selFriend.innerHTML = "";
 
-        var placeholder = document.createElement("option");
+        const placeholder = document.createElement("option");
         placeholder.value = "";
         placeholder.textContent = friendListCache.length ? "选择好友" : "没有可用好友";
         selFriend.appendChild(placeholder);
 
         friendListCache.forEach(function (item) {
-          var opt = document.createElement("option");
+          const opt = document.createElement("option");
           opt.value = String(item.gid);
           opt.textContent = buildFriendLabel(item);
           selFriend.appendChild(opt);
         });
 
         selFriend.disabled = friendListCache.length === 0;
+        updateFriendMetrics(payload);
 
-        var counts = payload && payload.counts ? payload.counts : {};
-        var work = payload && payload.workCounts ? payload.workCounts : {};
-        var msg = friendListCache.length
-          ? "好友 " + friendListCache.length + " 人；可摘好友 " + (counts.collectableFriends || 0) +
-            "，浇水 " + (counts.waterableFriends || 0) +
-            "，除草 " + (counts.eraseGrassFriends || 0) +
-            "，杀虫 " + (counts.killBugFriends || 0) +
+        const counts = payload && payload.counts ? payload.counts : {};
+        const work = payload && payload.workCounts ? payload.workCounts : {};
+        let msg = friendListCache.length
+          ? "好友 " + friendListCache.length + " 人；可偷好友 " + (counts.collectableFriends || 0) +
+            "，可浇水 " + (counts.waterableFriends || 0) +
+            "，可除草 " + (counts.eraseGrassFriends || 0) +
+            "，可杀虫 " + (counts.killBugFriends || 0) +
             "；总地块：摘 " + (work.collect || 0) +
             " / 水 " + (work.water || 0) +
             " / 草 " + (work.eraseGrass || 0) +
@@ -484,18 +1237,18 @@
           return;
         }
 
-        var parts = [];
+        const parts = [];
         parts.push(state.running ? "运行中" : "已停止");
         if (state.busy) parts.push("执行中");
-        if (state.nextRunAt) parts.push("下次: " + state.nextRunAt.replace("T", " ").replace("Z", ""));
-        if (state.lastFinishedAt) parts.push("上次完成: " + state.lastFinishedAt.replace("T", " ").replace("Z", ""));
+        if (state.nextRunAt) parts.push("下次: " + formatDateTime(state.nextRunAt));
+        if (state.lastFinishedAt) parts.push("上次完成: " + formatDateTime(state.lastFinishedAt));
         if (state.lastError) parts.push("最近错误: " + state.lastError);
         txtAutoFarmState.textContent = parts.join(" · ");
 
-        var lines = [];
-        var events = Array.isArray(state.recentEvents) ? state.recentEvents : [];
+        const lines = [];
+        const events = Array.isArray(state.recentEvents) ? state.recentEvents : [];
         events.forEach(function (item) {
-          var line = "[" + (item.time || "") + "] " + String(item.level || "info").toUpperCase() + " " + (item.message || "");
+          let line = "[" + (item.time ? formatDateTime(item.time) : "") + "] " + String(item.level || "info").toUpperCase() + " " + (item.message || "");
           if (item.extra !== undefined) line += "\n" + JSON.stringify(item.extra, null, 2);
           lines.push(line);
         });
@@ -524,16 +1277,98 @@
         iptPreviewNth.value = opts.everyNthFrame != null ? opts.everyNthFrame : 2;
       }
 
+      function updatePreviewInteractionUi() {
+        previewStage.classList.toggle("interactive", !!chkPreviewClick.checked);
+      }
+
+      function getPreviewSourceSize() {
+        const meta = lastPreviewFrameMeta || (previewState && previewState.lastFrameMeta) || null;
+        const width = meta && Number(meta.width) > 0 ? Number(meta.width) : Number(imgPreview.naturalWidth || 0);
+        const height = meta && Number(meta.height) > 0 ? Number(meta.height) : Number(imgPreview.naturalHeight || 0);
+        if (!(width > 0 && height > 0)) return null;
+        return { width: width, height: height };
+      }
+
+      function getPreviewRenderSize() {
+        const width = Number(imgPreview.naturalWidth || 0);
+        const height = Number(imgPreview.naturalHeight || 0);
+        if (width > 0 && height > 0) {
+          return { width: width, height: height };
+        }
+        return getPreviewSourceSize();
+      }
+
+      function getPreviewContentRect() {
+        const rect = imgPreview.getBoundingClientRect();
+        if (!(rect.width > 0 && rect.height > 0)) return null;
+        const render = getPreviewRenderSize();
+        if (!render) {
+          return {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+          };
+        }
+        const boxAspect = rect.width / rect.height;
+        const imageAspect = render.width / render.height;
+        let width = rect.width;
+        let height = rect.height;
+        if (imageAspect > boxAspect) {
+          height = rect.width / imageAspect;
+        } else {
+          width = rect.height * imageAspect;
+        }
+        return {
+          left: rect.left + (rect.width - width) / 2,
+          top: rect.top + (rect.height - height) / 2,
+          width: width,
+          height: height,
+        };
+      }
+
+      function clamp(num, min, max) {
+        return Math.min(max, Math.max(min, num));
+      }
+
+      function mapPreviewClientPointToSource(clientX, clientY, allowClamp) {
+        const rect = getPreviewContentRect();
+        if (!rect || !(rect.width > 0 && rect.height > 0)) {
+          return { ok: false, reason: "预览尺寸无效，无法发送操作" };
+        }
+        const source = getPreviewSourceSize();
+        if (!source) {
+          return { ok: false, reason: "缺少画面尺寸信息，无法发送操作" };
+        }
+        const inside =
+          clientX >= rect.left &&
+          clientX <= rect.left + rect.width &&
+          clientY >= rect.top &&
+          clientY <= rect.top + rect.height;
+        if (!inside && !allowClamp) {
+          return { ok: false, reason: "点击到了预览留白区，未发送操作" };
+        }
+        const rx = clamp((clientX - rect.left) / rect.width, 0, 1);
+        const ry = clamp((clientY - rect.top) / rect.height, 0, 1);
+        return {
+          ok: true,
+          point: {
+            x: Math.max(0, Math.min(source.width - 1, Math.round(rx * source.width))),
+            y: Math.max(0, Math.min(source.height - 1, Math.round(ry * source.height))),
+          },
+        };
+      }
+
       function setPreviewFrame(frame) {
         if (!frame || !frame.data || !frame.mediaType) return;
+        lastPreviewFrameMeta = frame.meta || lastPreviewFrameMeta;
         imgPreview.src = "data:" + frame.mediaType + ";base64," + frame.data;
         imgPreview.style.display = "block";
         previewEmpty.style.display = "none";
-        var meta = frame.meta || {};
-        var parts = [];
-        if (previewState && previewState.running) parts.push("预览中");
-        else parts.push("静态帧");
-        if (frame.ts) parts.push("时间: " + frame.ts.replace("T", " ").replace("Z", ""));
+        const meta = frame.meta || {};
+        const parts = [];
+        parts.push(previewState && previewState.running ? "预览中" : "静态帧");
+        if (frame.ts) parts.push("时间: " + formatDateTime(frame.ts));
         if (meta.width != null && meta.height != null) parts.push("尺寸: " + meta.width + "x" + meta.height);
         if (meta.bytesBase64 != null) parts.push("base64: " + meta.bytesBase64);
         txtPreviewState.textContent = parts.join(" · ");
@@ -544,14 +1379,17 @@
         if (syncForm && state && state.options) {
           applyPreviewOptions(state.options);
         }
+        if (state && state.lastFrameMeta) {
+          lastPreviewFrameMeta = state.lastFrameMeta;
+        }
         if (!state) {
           txtPreviewState.textContent = "未加载预览状态";
           return;
         }
-        var parts = [];
+        const parts = [];
         parts.push(state.running ? "预览运行中" : "预览已停止");
         parts.push("订阅连接: " + (state.subscriberCount || 0));
-        if (state.lastFrameAt) parts.push("最后一帧: " + state.lastFrameAt.replace("T", " ").replace("Z", ""));
+        if (state.lastFrameAt) parts.push("最后一帧: " + formatDateTime(state.lastFrameAt));
         if (state.lastError) parts.push("错误: " + state.lastError);
         txtPreviewState.textContent = parts.join(" · ");
       }
@@ -569,48 +1407,134 @@
         return false;
       }
 
-      function summarizeWsMessageForLog(data, tag) {
-        if (!data || typeof data !== "object") return data;
-        if (data.event === "previewFrame") return null;
-        if (data.event === "previewState") {
-          return {
-            event: data.event,
-            state: data.state ? {
-              running: data.state.running,
-              subscriberCount: data.state.subscriberCount,
-              lastFrameAt: data.state.lastFrameAt,
-              lastError: data.state.lastError,
-              options: data.state.options,
-            } : null,
-            extra: data.extra,
-          };
+      function clearPreviewPointer() {
+        if (previewPointer && previewPointer.endTimer) {
+          clearTimeout(previewPointer.endTimer);
         }
-        if (tag === "previewCapture" && data.ok && data.result) {
-          return {
-            id: data.id,
-            ok: true,
-            result: {
-              ts: data.result.ts,
-              mediaType: data.result.mediaType,
-              meta: data.result.meta,
-              options: data.result.options,
-            },
-          };
+        previewPointer = null;
+      }
+
+      function handlePreviewPointerDown(ev) {
+        if (!chkPreviewClick.checked) return;
+        if (previewPointer) return;
+        if (ev.button != null && ev.button !== 0) return;
+        if (!imgPreview.src) {
+          txtPreviewState.textContent = "还没有预览画面，无法发送操作";
+          return;
         }
-        if ((tag === "previewStart" || tag === "previewStop" || tag === "previewStatus") && data.ok && data.result) {
-          return {
-            id: data.id,
-            ok: true,
-            result: {
-              running: data.result.running,
-              subscriberCount: data.result.subscriberCount,
-              lastFrameAt: data.result.lastFrameAt,
-              lastError: data.result.lastError,
-              options: data.result.options,
-            },
-          };
+        const mapped = mapPreviewClientPointToSource(ev.clientX, ev.clientY, false);
+        if (!mapped.ok) {
+          txtPreviewState.textContent = mapped.reason;
+          return;
         }
-        return data;
+        ev.preventDefault();
+        try {
+          if (typeof imgPreview.setPointerCapture === "function") {
+            imgPreview.setPointerCapture(ev.pointerId);
+          }
+        } catch (_) {}
+        previewPointer = {
+          pointerId: ev.pointerId,
+          startClientX: ev.clientX,
+          startClientY: ev.clientY,
+          startPoint: mapped.point,
+          startedAt: Date.now(),
+          lastPoint: mapped.point,
+          moved: false,
+          lastSentMoveAt: 0,
+          moveSeq: 0,
+          endTimer: null,
+        };
+        txtPreviewState.textContent = "手势开始: (" + mapped.point.x + ", " + mapped.point.y + ")";
+        send({
+          op: "previewDragStart",
+          x: mapped.point.x,
+          y: mapped.point.y,
+        }, "previewDragStart");
+      }
+
+      function handlePreviewPointerMove(ev) {
+        if (!previewPointer || ev.pointerId !== previewPointer.pointerId) return;
+        ev.preventDefault();
+        const mapped = mapPreviewClientPointToSource(ev.clientX, ev.clientY, true);
+        if (!mapped.ok) return;
+        previewPointer.lastPoint = mapped.point;
+        const dxClient = ev.clientX - previewPointer.startClientX;
+        const dyClient = ev.clientY - previewPointer.startClientY;
+        const distClient = Math.hypot(dxClient, dyClient);
+        if (distClient >= 8) {
+          previewPointer.moved = true;
+        }
+        if (!previewPointer.moved) {
+          return;
+        }
+        const now = Date.now();
+        if (now - previewPointer.lastSentMoveAt < 16) {
+          return;
+        }
+        previewPointer.lastSentMoveAt = now;
+        previewPointer.moveSeq += 1;
+        send({
+          op: "previewDragMove",
+          x: mapped.point.x,
+          y: mapped.point.y,
+          seq: previewPointer.moveSeq,
+        }, "previewDragMove");
+      }
+
+      function finishPreviewPointer(ev, cancelled) {
+        if (!previewPointer || ev.pointerId !== previewPointer.pointerId) return;
+        const gesture = previewPointer;
+        try {
+          if (typeof imgPreview.releasePointerCapture === "function") {
+            imgPreview.releasePointerCapture(ev.pointerId);
+          }
+        } catch (_) {}
+        if (cancelled) {
+          clearPreviewPointer();
+          txtPreviewState.textContent = "手势已取消，正在清理触摸状态";
+          send({
+            op: "previewDragEnd",
+            x: gesture.lastPoint.x,
+            y: gesture.lastPoint.y,
+          }, "previewDragEnd");
+          return;
+        }
+        const mapped = mapPreviewClientPointToSource(ev.clientX, ev.clientY, true);
+        if (!mapped.ok) {
+          clearPreviewPointer();
+          txtPreviewState.textContent = mapped.reason;
+          return;
+        }
+        gesture.lastPoint = mapped.point;
+        const minHold = Math.max(0, Number(iptPreviewHold.value || 32));
+        const elapsed = Date.now() - gesture.startedAt;
+        const finalize = function () {
+          const label = gesture.moved ? "正在结束实时滑动" : "正在结束点击";
+          txtPreviewState.textContent = label + ": (" + gesture.lastPoint.x + ", " + gesture.lastPoint.y + ")";
+          send({
+            op: "previewDragEnd",
+            x: gesture.lastPoint.x,
+            y: gesture.lastPoint.y,
+          }, "previewDragEnd");
+        };
+        if (!gesture.moved && elapsed < minHold) {
+          gesture.endTimer = setTimeout(function () {
+            clearPreviewPointer();
+            finalize();
+          }, minHold - elapsed);
+        } else {
+          clearPreviewPointer();
+          finalize();
+        }
+      }
+
+      function handlePreviewPointerUp(ev) {
+        finishPreviewPointer(ev, false);
+      }
+
+      function handlePreviewPointerCancel(ev) {
+        finishPreviewPointer(ev, true);
       }
 
       function loadAutoFarmState(syncForm) {
@@ -630,7 +1554,7 @@
       }
 
       function sendAutoFarmAction(action) {
-        var cfg = gatherAutoFarmConfig();
+        const cfg = gatherAutoFarmConfig();
         Object.assign(farmConfig, cfg);
         return fetch("/api/auto-farm", {
           method: "POST",
@@ -655,231 +1579,6 @@
           });
       }
 
-      function setWs(ok) {
-        dotWs.className = "dot " + (ok ? "ok" : "bad");
-        txtWs.textContent = ok ? "已连接 " + wsUrl() : "未连接";
-      }
-
-      function wsUrl() {
-        const proto = location.protocol === "https:" ? "wss:" : "ws:";
-        return proto + "//" + location.host + WS_PATH;
-      }
-
-      function connect() {
-        if (ws && ws.readyState === WebSocket.OPEN) return;
-        ws = new WebSocket(wsUrl());
-        ws.onopen = function () {
-          setWs(true);
-          appendLine("WebSocket 已连接（将自动 ping 以建立 CDP 会话并开始探测上下文）");
-          send({ op: "ping" });
-        };
-        ws.onclose = function () {
-          setWs(false);
-          appendLine("WebSocket 断开，5s 后重试");
-          setTimeout(connect, 5000);
-        };
-        ws.onerror = function () {
-          appendLine("WebSocket 错误");
-        };
-        ws.onmessage = function (ev) {
-          try {
-            const data = JSON.parse(ev.data);
-            if (handleWsEvent(data)) return;
-            var tag = data && data.id != null ? pendingTags.get(String(data.id)) : null;
-            if (data && data.id != null) pendingTags.delete(String(data.id));
-            var summary = summarizeWsMessageForLog(data, tag);
-            if (summary !== null) appendLine("← 收到", summary);
-            if (tag != null) {
-              try {
-                handleWsResult(data, tag);
-              } catch (_) {}
-            }
-          } catch (e) {
-            appendLine("← 原始", ev.data);
-          }
-        };
-      }
-
-      function handleWsResult(msg, code) {
-        if (!code) return;
-        if (!msg.ok) {
-          var isPreviewOp = code === "previewStart" || code === "previewStop" || code === "previewCapture" || code === "previewStatus";
-          if (code === "friends") {
-            txtFriendSummary.textContent = "获取好友列表失败: " + (msg.error || "?");
-          } else if (isPreviewOp) {
-            txtPreviewState.textContent = "预览操作失败: " + (msg.error || "?");
-          }
-          if (!isPreviewOp) {
-            stGameCtl.textContent = "错误: " + (msg.error || "?");
-          }
-          return;
-        }
-        var r = msg.result;
-        if (code === "typeof") {
-          stGameCtl.textContent = typeof r === "string" ? "typeof gameCtl = " + r : JSON.stringify(r);
-        } else if (code === "land") {
-          stGameCtl.textContent = "已拉取土地摘要（见日志）";
-        } else if (code === "friends") {
-          renderFriendList(r);
-          stGameCtl.textContent = "已拉取好友列表（见日志）";
-        } else if (code === "enterFriend") {
-          var friend = r && r.friend ? r.friend : null;
-          stGameCtl.textContent = friend
-            ? "已发起进入好友农场: " + (friend.displayName || friend.name || friend.gid)
-            : "已发起进入好友农场";
-        } else if (code === "previewStart" || code === "previewStop" || code === "previewStatus") {
-          renderPreviewState(r, true);
-        } else if (code === "previewCapture") {
-          setPreviewFrame(r);
-        }
-      }
-
-      function send(payload, tag) {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-          appendLine("未连接", payload);
-          return;
-        }
-        const id = ++reqId;
-        if (tag !== undefined && tag !== null) pendingTags.set(String(id), tag);
-        const body = Object.assign({ id: String(id) }, payload);
-        appendLine("→ 发送", body);
-        ws.send(JSON.stringify(body));
-      }
-
-      function fetchHealth() {
-        fetch("/api/health")
-          .then(function (r) {
-            if (!r.ok) throw new Error("HTTP " + r.status);
-            return r.json();
-          })
-          .then(function (j) {
-            dotHttp.className = "dot ok";
-            txtHttp.textContent = "运行中 · " + j.uptimeSec + "s";
-            var c = j.cdp;
-            var parts = [];
-            if (!j.cdpSessionInitialized) {
-              parts.push("尚未建立 CDP 会话（未发过 WS 指令）");
-            } else if (c) {
-              if (c.mode) parts.push(c.mode);
-              if (c.prepareState) parts.push("状态=" + c.prepareState);
-              if (c.transportConnected === false) parts.push("小游戏未连调试桥");
-              else if (c.transportConnected === true) parts.push("小游戏已连调试桥");
-              if (c.contextReady) parts.push("上下文就绪");
-              else parts.push("上下文未就绪");
-              if (c.executionContextId != null) parts.push("ctxId=" + c.executionContextId);
-              if (c.currentJsContextId) parts.push("jsctx=" + c.currentJsContextId);
-              if (c.prepareError) parts.push("错误: " + c.prepareError);
-            }
-            stCdp.textContent = parts.length ? parts.join(" · ") : "—";
-            renderPreviewState(j.preview || null, false);
-          })
-          .catch(function () {
-            dotHttp.className = "dot bad";
-            txtHttp.textContent = "无法访问 /api/health";
-            stCdp.textContent = "—";
-          });
-      }
-
-      function refreshGameCtl() {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-          stGameCtl.textContent = "请先连接 WebSocket";
-          return;
-        }
-        send({ op: "eval", code: "return typeof gameCtl" }, "typeof");
-      }
-
-      document.getElementById("btnPing").onclick = function () {
-        send({ op: "ping" });
-      };
-      document.getElementById("btnInject").onclick = function () {
-        send({ op: "injectFile", path: "button.js" });
-      };
-      document.getElementById("btnCheck").onclick = function () {
-        refreshGameCtl();
-      };
-      document.getElementById("btnLand").onclick = function () {
-        send({
-          op: "eval",
-          code: "return await gameCtl.getFarmStatus({ includeGrids: true });",
-        }, "land");
-      };
-      document.getElementById("btnFriends").onclick = function () {
-        send({
-          op: "call",
-          path: "gameCtl.getFriendList",
-          args: [{ refresh: true }],
-        }, "friends");
-      };
-      document.getElementById("btnEnterFriend").onclick = function () {
-        var manual = String(iptFriendTarget.value || "").trim();
-        var target = manual || String(selFriend.value || "").trim();
-        if (!target) {
-          appendLine("请输入 gid / 名字 / 备注，或先从下拉框选择好友");
-          return;
-        }
-        send({
-          op: "call",
-          path: "gameCtl.enterFriendFarm",
-          args: [/^\d+$/.test(target) ? Number(target) : target],
-        }, "enterFriend");
-      };
-      document.getElementById("btnRefreshGame").onclick = refreshGameCtl;
-      document.getElementById("btnClear").onclick = function () {
-        logEl.textContent = "";
-      };
-      document.getElementById("btnPreviewStart").onclick = function () {
-        send({ op: "previewStart", options: gatherPreviewOptions() }, "previewStart");
-      };
-      document.getElementById("btnPreviewStop").onclick = function () {
-        send({ op: "previewStop" }, "previewStop");
-      };
-      document.getElementById("btnPreviewCapture").onclick = function () {
-        send({ op: "previewCapture", options: gatherPreviewOptions() }, "previewCapture");
-      };
-      document.getElementById("btnPreviewStatus").onclick = function () {
-        send({ op: "previewStatus" }, "previewStatus");
-      };
-
-      document.querySelector(".tabs").addEventListener("click", function (e) {
-        var btn = e.target.closest("button[data-tab]");
-        if (!btn) return;
-        var tab = btn.getAttribute("data-tab");
-        document.querySelectorAll(".tabs button").forEach(function (b) {
-          b.classList.toggle("on", b === btn);
-        });
-        document.querySelectorAll(".panel").forEach(function (p) {
-          p.classList.toggle("on", p.getAttribute("data-tab") === tab);
-        });
-      });
-
-      function renderSwitches() {
-        var box = document.getElementById("farmSwitches");
-        box.innerHTML = "";
-        FARM_KEYS.forEach(function (def) {
-          var row = document.createElement("div");
-          row.className = "sw";
-          var on = !!farmConfig[def.key];
-          row.innerHTML =
-            "<label><span>" +
-            def.label +
-            "</span><small>" +
-            def.help +
-            "</small></label><input type=\"checkbox\" data-key=\"" +
-            def.key +
-            "\" " +
-            (on ? "checked" : "") +
-            " />";
-          box.appendChild(row);
-        });
-        box.querySelectorAll('input[type="checkbox"]').forEach(function (inp) {
-          inp.addEventListener("change", function () {
-            var key = inp.getAttribute("data-key");
-            farmConfig[key] = inp.checked;
-            saveFarmConfigRemote();
-          });
-        });
-      }
-
       function saveFarmConfigRemote() {
         fetch("/api/farm-config", {
           method: "POST",
@@ -895,7 +1594,7 @@
               applyAutoFarmConfigToForm(farmConfig);
               try {
                 localStorage.setItem(LS_CFG_CACHE, JSON.stringify(farmConfig));
-              } catch (e) {}
+              } catch (_) {}
               appendLine("配置已保存", farmConfig);
             } else {
               appendLine("保存失败", j);
@@ -914,36 +1613,361 @@
           .then(function (j) {
             if (j.ok && j.data) {
               farmConfig = j.data;
-              renderSwitches();
               applyAutoFarmConfigToForm(farmConfig);
               try {
                 localStorage.setItem(LS_CFG_CACHE, JSON.stringify(farmConfig));
-              } catch (e) {}
+              } catch (_) {}
             }
           })
           .catch(function () {
             try {
-              var c = localStorage.getItem(LS_CFG_CACHE);
-              if (c) {
-                farmConfig = JSON.parse(c);
-                renderSwitches();
+              const cached = localStorage.getItem(LS_CFG_CACHE);
+              if (cached) {
+                farmConfig = JSON.parse(cached);
                 applyAutoFarmConfigToForm(farmConfig);
               }
-            } catch (e) {}
+            } catch (_) {}
           });
       }
 
-      document.getElementById("btnReloadConfig").onclick = loadFarmConfig;
+      function setWs(ok) {
+        setDotState(dotWs, ok ? "ok" : "bad");
+        txtWs.textContent = ok ? "已连接 " + wsUrl() : "未连接";
+      }
+
+      function getContextKey(cdp) {
+        if (!cdp) return "";
+        if (cdp.executionContextId != null) return "ctx:" + cdp.executionContextId;
+        return "ctx:" + [
+          cdp.transportConnected === true ? 1 : 0,
+          cdp.contextReady === true ? 1 : 0,
+          cdp.prepareState || "",
+          cdp.currentJsContextId || "",
+        ].join(":");
+      }
+
+      function renderInjectStatus() {
+        let state = "warn";
+        let text = "等待上下文就绪";
+        if (autoInject.inFlight) {
+          state = "warn";
+          text = "正在自动注入 " + autoInject.path;
+        } else if (autoInject.injected) {
+          state = "ok";
+          text = autoInject.lastOkAt ? "已自动注入 · " + formatClock(autoInject.lastOkAt) : "已自动注入";
+        } else if (autoInject.lastError) {
+          state = "bad";
+          text = "注入失败 · " + autoInject.lastError;
+        } else if (!lastHealth || !lastHealth.cdp || !lastHealth.cdp.contextReady) {
+          state = "warn";
+          text = "等待上下文就绪";
+        } else if (!ws || ws.readyState !== WebSocket.OPEN) {
+          state = "warn";
+          text = "等待 WebSocket";
+        } else if (autoInject.attemptedContextKey && autoInject.attemptedContextKey === autoInject.contextKey) {
+          state = "warn";
+          text = "当前上下文已尝试注入";
+        }
+        setDotState(dotInject, state);
+        stInject.textContent = text;
+      }
+
+      function resetAutoInjectForNextContext() {
+        autoInject.inFlight = false;
+        autoInject.injected = false;
+        autoInject.contextKey = "";
+        autoInject.attemptedContextKey = "";
+        autoInject.lastError = "";
+        autoInject.lastOkAt = "";
+      }
+
+      function maybeAutoInjectFromHealth(payload) {
+        lastHealth = payload || null;
+        const cdp = payload && payload.cdp ? payload.cdp : null;
+        if (!(cdp && cdp.contextReady)) {
+          if (autoInject.contextKey || autoInject.injected || autoInject.inFlight) {
+            resetAutoInjectForNextContext();
+          }
+          renderInjectStatus();
+          return;
+        }
+
+        const nextContextKey = getContextKey(cdp);
+        if (autoInject.contextKey && autoInject.contextKey !== nextContextKey) {
+          resetAutoInjectForNextContext();
+        }
+        autoInject.contextKey = nextContextKey;
+
+        if (autoInject.inFlight || autoInject.injected || autoInject.attemptedContextKey === nextContextKey) {
+          renderInjectStatus();
+          return;
+        }
+
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          renderInjectStatus();
+          return;
+        }
+
+        autoInject.inFlight = true;
+        autoInject.lastError = "";
+        autoInject.attemptedContextKey = nextContextKey;
+        renderInjectStatus();
+        if (!send({ op: "injectFile", path: autoInject.path }, "autoInject")) {
+          autoInject.inFlight = false;
+          renderInjectStatus();
+        }
+      }
+
+      function renderContextStatus(snapshot, payload) {
+        const c = snapshot || null;
+        if (!payload || !payload.cdpSessionInitialized) {
+          setDotState(dotContext, "warn");
+          stContext.textContent = "等待首个 WebSocket 指令建立 CDP 会话";
+          return;
+        }
+        if (!c) {
+          setDotState(dotContext, "warn");
+          stContext.textContent = "CDP 会话初始化中";
+          return;
+        }
+        const parts = [];
+        if (c.mode) parts.push(c.mode);
+        if (c.transportConnected === true) parts.push("调试桥已连接");
+        else if (c.transportConnected === false) parts.push("调试桥未连接");
+        if (c.contextReady) parts.push("上下文就绪");
+        else parts.push("等待上下文");
+        if (c.executionContextId != null) parts.push("ctx=" + c.executionContextId);
+        if (c.prepareState) parts.push("状态=" + c.prepareState);
+        if (c.prepareError) parts.push("错误: " + c.prepareError);
+
+        let state = "warn";
+        if (c.prepareError) state = "bad";
+        else if (c.contextReady) state = "ok";
+        else if (c.transportConnected === false) state = "bad";
+        setDotState(dotContext, state);
+        stContext.textContent = parts.length ? parts.join(" · ") : "等待上下文";
+      }
+
+      function fetchHealth() {
+        fetch("/api/health")
+          .then(function (r) {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          })
+          .then(function (j) {
+            lastHealth = j;
+            setDotState(dotHttp, "ok");
+            txtHttp.textContent = "运行中 · " + j.uptimeSec + "s";
+            renderContextStatus(j.cdp, j);
+            renderPreviewState(j.preview || null, false);
+            maybeAutoInjectFromHealth(j);
+          })
+          .catch(function () {
+            lastHealth = null;
+            setDotState(dotHttp, "bad");
+            txtHttp.textContent = "无法访问 /api/health";
+            setDotState(dotContext, "bad");
+            stContext.textContent = "健康检查失败";
+            renderInjectStatus();
+          });
+      }
+
+      function extractDispatchMeta(payload) {
+        const nested = payload && payload.result && typeof payload.result === "object" ? payload.result : null;
+        return {
+          mode: (payload && payload.mode) || (nested && nested.mode) || null,
+          fallbackFrom: (payload && payload.fallbackFrom) || (nested && nested.fallbackFrom) || null,
+        };
+      }
+
+      function handleWsResult(msg, code) {
+        if (!code) return;
+
+        if (code === "autoInject") {
+          autoInject.inFlight = false;
+          if (!msg.ok) {
+            autoInject.injected = false;
+            autoInject.lastError = msg.error || "?";
+          } else {
+            autoInject.injected = true;
+            autoInject.lastError = "";
+            autoInject.lastOkAt = new Date().toISOString();
+          }
+          renderInjectStatus();
+          return;
+        }
+
+        if (!msg.ok) {
+          const isPreviewOp =
+            code === "previewStart" ||
+            code === "previewStop" ||
+            code === "previewCapture" ||
+            code === "previewStatus" ||
+            code === "previewTap" ||
+            code === "previewDragStart" ||
+            code === "previewDragMove" ||
+            code === "previewDragEnd" ||
+            code === "previewSwipe";
+          if (code === "friends") {
+            txtFriendSummary.textContent = "获取好友列表失败: " + (msg.error || "?");
+          } else if (code === "enterFriend") {
+            txtFriendSummary.textContent = "进入好友失败: " + (msg.error || "?");
+          } else if (isPreviewOp) {
+            txtPreviewState.textContent = "预览操作失败: " + (msg.error || "?");
+          }
+          return;
+        }
+
+        const r = msg.result;
+        if (code === "friends") {
+          renderFriendList(r);
+          return;
+        }
+        if (code === "enterFriend") {
+          const friend = r && r.friend ? r.friend : null;
+          txtFriendSummary.textContent = friend
+            ? "已发起进入好友农场: " + (friend.displayName || friend.name || friend.gid)
+            : "已发起进入好友农场";
+          return;
+        }
+        if (code === "previewStart" || code === "previewStop" || code === "previewStatus") {
+          renderPreviewState(r, true);
+          return;
+        }
+        if (code === "previewCapture") {
+          setPreviewFrame(r);
+          return;
+        }
+        if (code === "previewTap") {
+          const meta0 = extractDispatchMeta(r);
+          const parts0 = ["已发送点击: (" + r.x + ", " + r.y + ")"];
+          if (meta0.mode) parts0.push("模式: " + meta0.mode);
+          if (meta0.fallbackFrom) parts0.push("touch 回退: " + meta0.fallbackFrom);
+          txtPreviewState.textContent = parts0.join(" · ");
+          return;
+        }
+        if (code === "previewDragStart") {
+          const meta1 = extractDispatchMeta(r);
+          const parts1 = ["实时手势已开始: (" + r.x + ", " + r.y + ")"];
+          if (meta1.mode) parts1.push("模式: " + meta1.mode);
+          if (meta1.fallbackFrom) parts1.push("touch 回退: " + meta1.fallbackFrom);
+          txtPreviewState.textContent = parts1.join(" · ");
+          return;
+        }
+        if (code === "previewDragEnd") {
+          const meta2 = extractDispatchMeta(r);
+          const parts2 = ["实时手势已结束: (" + r.x + ", " + r.y + ")"];
+          if (meta2.mode) parts2.push("模式: " + meta2.mode);
+          if (meta2.fallbackFrom) parts2.push("touch 回退: " + meta2.fallbackFrom);
+          txtPreviewState.textContent = parts2.join(" · ");
+          return;
+        }
+        if (code === "previewSwipe") {
+          const meta3 = extractDispatchMeta(r);
+          const parts3 = [
+            "已发送滑动: (" + r.x1 + ", " + r.y1 + ") -> (" + r.x2 + ", " + r.y2 + ")",
+            "duration=" + r.durationMs + "ms",
+            "steps=" + r.steps,
+          ];
+          if (meta3.mode) parts3.push("模式: " + meta3.mode);
+          if (meta3.fallbackFrom) parts3.push("touch 回退: " + meta3.fallbackFrom);
+          txtPreviewState.textContent = parts3.join(" · ");
+        }
+      }
+
+      function connect() {
+        if (ws && ws.readyState === WebSocket.OPEN) return;
+        ws = new WebSocket(wsUrl());
+        ws.onopen = function () {
+          setWs(true);
+          appendLine("WebSocket 已连接，开始建立 CDP 会话并探测小游戏上下文");
+          send({ op: "ping" });
+          renderInjectStatus();
+          if (lastHealth && lastHealth.cdp) {
+            maybeAutoInjectFromHealth(lastHealth);
+          }
+          fetchHealth();
+        };
+        ws.onclose = function () {
+          setWs(false);
+          resetAutoInjectForNextContext();
+          renderInjectStatus();
+          appendLine("WebSocket 断开，5 秒后重试");
+          setTimeout(connect, 5000);
+        };
+        ws.onerror = function () {
+          appendLine("WebSocket 错误");
+        };
+        ws.onmessage = function (ev) {
+          try {
+            const data = JSON.parse(ev.data);
+            if (handleWsEvent(data)) return;
+            const tag = data && data.id != null ? pendingTags.get(String(data.id)) : null;
+            if (data && data.id != null) pendingTags.delete(String(data.id));
+            const summary = summarizeWsMessageForLog(data, tag);
+            if (summary !== null) appendLine("← 收到", summary);
+            if (tag != null) {
+              try {
+                handleWsResult(data, tag);
+              } catch (_) {}
+            }
+          } catch (_) {
+            appendLine("← 原始", ev.data);
+          }
+        };
+      }
+
+      document.getElementById("btnFriends").onclick = function () {
+        send({
+          op: "call",
+          path: "gameCtl.getFriendList",
+          args: [{ refresh: true }],
+        }, "friends");
+      };
+
+      document.getElementById("btnEnterFriend").onclick = function () {
+        const manual = String(iptFriendTarget.value || "").trim();
+        const target = manual || String(selFriend.value || "").trim();
+        if (!target) {
+          appendLine("请输入 gid / 名字 / 备注，或先从下拉框选择好友");
+          return;
+        }
+        send({
+          op: "call",
+          path: "gameCtl.enterFriendFarm",
+          args: [/^\d+$/.test(target) ? Number(target) : target],
+        }, "enterFriend");
+      };
+
+      document.getElementById("btnPreviewStart").onclick = function () {
+        send({ op: "previewStart", options: gatherPreviewOptions() }, "previewStart");
+      };
+
+      document.getElementById("btnPreviewStop").onclick = function () {
+        send({ op: "previewStop" }, "previewStop");
+      };
+
+      document.getElementById("btnPreviewCapture").onclick = function () {
+        send({ op: "previewCapture", options: gatherPreviewOptions() }, "previewCapture");
+      };
+
+      document.getElementById("btnPreviewStatus").onclick = function () {
+        send({ op: "previewStatus" }, "previewStatus");
+      };
+
       document.getElementById("btnAutoSave").onclick = function () {
         Object.assign(farmConfig, gatherAutoFarmConfig());
         saveFarmConfigRemote();
       };
+
       document.getElementById("btnAutoRunOnce").onclick = function () {
         sendAutoFarmAction("runOnce");
       };
+
       document.getElementById("btnAutoStart").onclick = function () {
         sendAutoFarmAction("start");
       };
+
       document.getElementById("btnAutoStop").onclick = function () {
         fetch("/api/auto-farm", {
           method: "POST",
@@ -963,30 +1987,46 @@
             appendLine("停止自动化失败", String(e));
           });
       };
+
       document.getElementById("btnAutoRefresh").onclick = function () {
         loadAutoFarmState(false);
       };
 
-      document.getElementById("btnTheme").onclick = function () {
-        var cur = document.documentElement.getAttribute("data-theme") || "dark";
-        var next = cur === "dark" ? "light" : "dark";
-        document.documentElement.setAttribute("data-theme", next);
-        try {
-          localStorage.setItem(LS_THEME, next);
-        } catch (e) {}
+      document.getElementById("btnClearLog").onclick = function () {
+        logEl.textContent = "";
       };
-      try {
-        var t = localStorage.getItem(LS_THEME);
-        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
-      } catch (e) {}
+
+      chkPreviewClick.onchange = updatePreviewInteractionUi;
+      imgPreview.addEventListener("pointerdown", handlePreviewPointerDown);
+      imgPreview.addEventListener("pointermove", handlePreviewPointerMove);
+      imgPreview.addEventListener("pointerup", handlePreviewPointerUp);
+      imgPreview.addEventListener("pointercancel", handlePreviewPointerCancel);
+      imgPreview.addEventListener("dragstart", function (ev) { ev.preventDefault(); });
+
+      document.querySelector(".tabbar").addEventListener("click", function (e) {
+        const btn = e.target.closest("button[data-tab]");
+        if (!btn) return;
+        const tab = btn.getAttribute("data-tab");
+        document.querySelectorAll(".tab-btn").forEach(function (item) {
+          item.classList.toggle("on", item === btn);
+        });
+        document.querySelectorAll(".panel").forEach(function (panel) {
+          panel.classList.toggle("on", panel.getAttribute("data-tab") === tab);
+        });
+      });
 
       applyPreviewOptions({});
+      iptPreviewHold.value = 32;
+      updatePreviewInteractionUi();
+      updateFriendMetrics(null);
+      setWs(false);
+      renderInjectStatus();
       connect();
       fetchHealth();
-      setInterval(fetchHealth, 5000);
+      setInterval(fetchHealth, HEALTH_POLL_MS);
       loadFarmConfig();
       loadAutoFarmState(true);
-      setInterval(function () { loadAutoFarmState(false); }, 5000);
+      setInterval(function () { loadAutoFarmState(false); }, AUTO_FARM_POLL_MS);
     })();
   </script>
 </body>

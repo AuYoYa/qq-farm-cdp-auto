@@ -11,7 +11,7 @@ const {
   selectExecutionContext,
   evaluateExpression,
   waitForRuntimeReady,
-} = require(nodePath.join(__dirname, "..", "..", "wmpf", "src", "cdp_automation.js"));
+} = require(nodePath.join(__dirname, "..", "wmpf", "src", "cdp_automation.js"));
 
 const PREPARE_DEBOUNCE_MS = 200;
 const EXPLICIT_CONTEXT_RUNTIME_ENABLE_MS = 5_000;

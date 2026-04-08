@@ -40,7 +40,7 @@ const FARM_CONFIG_DEFAULT = {
 };
 
 function farmConfigPath() {
-  return path.join(__dirname, "..", "..", "data", "farm-config.json");
+  return path.join(__dirname, "..", "data", "farm-config.json");
 }
 
 async function loadFarmConfig() {
@@ -59,7 +59,7 @@ async function loadFarmConfig() {
 async function saveFarmConfig(partial) {
   const cur = await loadFarmConfig();
   const next = { ...cur, ...(partial && typeof partial === "object" ? partial : {}) };
-  const dir = path.join(__dirname, "..", "..", "data");
+  const dir = path.join(__dirname, "..", "data");
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(farmConfigPath(), JSON.stringify(next, null, 2), "utf8");
   return next;
@@ -82,7 +82,7 @@ async function readJsonBody(req) {
  */
 function tryLoadWmpfEmitter() {
   try {
-    const wmpf = require(path.join(__dirname, "..", "..", "wmpf", "src", "index.js"));
+    const wmpf = require(path.join(__dirname, "..", "wmpf", "src", "index.js"));
     if (wmpf && wmpf.debugMessageEmitter) {
       return { emitter: wmpf.debugMessageEmitter };
     }
@@ -112,8 +112,8 @@ function createGateway(config) {
   const wmpfBridge =
     config.useWmpfCdpBridge !== false ? tryLoadWmpfEmitter() : null;
 
-  const publicRoot = path.join(__dirname, "..", "..", "public");
-  const projectRoot = path.join(__dirname, "..", "..");
+  const publicRoot = path.join(__dirname, "..", "public");
+  const projectRoot = path.join(__dirname, "..");
 
   /** 并发多次 ensureCdp 时共用同一次 connect，避免重复建会话 */
   let ensureCdpInFlight = null;
@@ -155,6 +155,10 @@ function createGateway(config) {
     ensureCdp,
     getCdp: () => cdp,
   });
+  /** @type {WeakMap<any, Promise<any>>} */
+  const previewInputQueues = new WeakMap();
+  /** @type {WeakMap<any, { mode: string; session: any; currentX: number; currentY: number; fallbackFrom?: string | null }>} */
+  const previewDragSessions = new WeakMap();
   loadFarmConfig()
     .then((savedConfig) => {
       autoFarmManager.updateConfig(savedConfig);
@@ -191,6 +195,258 @@ function createGateway(config) {
       if (typeof cur !== 'function') throw new Error('call path is not a function: ' + _path.join('.'));
       return await cur.apply(null, ${jsonArgs});
     })()`;
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+  }
+
+  function clampInt(value, defaultValue, min, max) {
+    const n = Number.parseInt(String(value ?? ""), 10);
+    const fallback = Number.isFinite(n) ? n : defaultValue;
+    return Math.min(max, Math.max(min, fallback));
+  }
+
+  function makeTouchPoint(x, y) {
+    return {
+      x,
+      y,
+      radiusX: 1,
+      radiusY: 1,
+      force: 1,
+      id: 1,
+    };
+  }
+
+  function enqueuePreviewInput(socket, task) {
+    const prev = previewInputQueues.get(socket) || Promise.resolve();
+    const next = prev.catch(() => {}).then(task);
+    previewInputQueues.set(socket, next.finally(() => {
+      if (previewInputQueues.get(socket) === next) {
+        previewInputQueues.delete(socket);
+      }
+    }));
+    return next;
+  }
+
+  async function dispatchCdpTap(session, x, y, hold) {
+    const point = makeTouchPoint(x, y);
+
+    try {
+      await session.sendCommand("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [point],
+      });
+      if (hold > 0) {
+        await sleep(hold);
+      }
+      await session.sendCommand("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+      return { mode: "touch" };
+    } catch (touchError) {
+      await session.sendCommand("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x,
+        y,
+        button: "left",
+        buttons: 0,
+        clickCount: 0,
+      });
+      await session.sendCommand("Input.dispatchMouseEvent", {
+        type: "mousePressed",
+        x,
+        y,
+        button: "left",
+        buttons: 1,
+        clickCount: 1,
+      });
+      if (hold > 0) {
+        await sleep(hold);
+      }
+      await session.sendCommand("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        x,
+        y,
+        button: "left",
+        buttons: 0,
+        clickCount: 1,
+      });
+      return {
+        mode: "mouse",
+        fallbackFrom: touchError instanceof Error ? touchError.message : String(touchError),
+      };
+    }
+  }
+
+  async function beginCdpDrag(session, x, y) {
+    const point = makeTouchPoint(x, y);
+    try {
+      await session.sendCommand("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [point],
+      });
+      return {
+        mode: "touch",
+        session,
+        currentX: x,
+        currentY: y,
+        fallbackFrom: null,
+      };
+    } catch (touchError) {
+      await session.sendCommand("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x,
+        y,
+        button: "left",
+        buttons: 0,
+        clickCount: 0,
+      });
+      await session.sendCommand("Input.dispatchMouseEvent", {
+        type: "mousePressed",
+        x,
+        y,
+        button: "left",
+        buttons: 1,
+        clickCount: 1,
+      });
+      return {
+        mode: "mouse",
+        session,
+        currentX: x,
+        currentY: y,
+        fallbackFrom: touchError instanceof Error ? touchError.message : String(touchError),
+      };
+    }
+  }
+
+  async function moveCdpDrag(state, x, y) {
+    if (state.mode === "touch") {
+      await state.session.sendCommand("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [makeTouchPoint(x, y)],
+      });
+    } else {
+      await state.session.sendCommand("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x,
+        y,
+        button: "left",
+        buttons: 1,
+        clickCount: 1,
+      });
+    }
+    state.currentX = x;
+    state.currentY = y;
+  }
+
+  async function endCdpDrag(state, x, y) {
+    if (state.currentX !== x || state.currentY !== y) {
+      await moveCdpDrag(state, x, y);
+    }
+    if (state.mode === "touch") {
+      await state.session.sendCommand("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+    } else {
+      await state.session.sendCommand("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        x,
+        y,
+        button: "left",
+        buttons: 0,
+        clickCount: 1,
+      });
+    }
+    state.currentX = x;
+    state.currentY = y;
+  }
+
+  async function dispatchCdpSwipe(session, x1, y1, x2, y2, durationMs, steps) {
+    const startPoint = {
+      x: x1,
+      y: y1,
+      radiusX: 1,
+      radiusY: 1,
+      force: 1,
+      id: 1,
+    };
+    const totalSteps = Math.max(1, steps);
+    const moveDelayMs = totalSteps > 0 ? Math.max(0, Math.round(durationMs / totalSteps)) : 0;
+
+    try {
+      await session.sendCommand("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [startPoint],
+      });
+      for (let i = 1; i <= totalSteps; i++) {
+        const ratio = i / totalSteps;
+        await session.sendCommand("Input.dispatchTouchEvent", {
+          type: "touchMove",
+          touchPoints: [{
+            x: Math.round(x1 + (x2 - x1) * ratio),
+            y: Math.round(y1 + (y2 - y1) * ratio),
+            radiusX: 1,
+            radiusY: 1,
+            force: 1,
+            id: 1,
+          }],
+        });
+        if (moveDelayMs > 0 && i < totalSteps) {
+          await sleep(moveDelayMs);
+        }
+      }
+      await session.sendCommand("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+      return { mode: "touch" };
+    } catch (touchError) {
+      await session.sendCommand("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: x1,
+        y: y1,
+        button: "left",
+        buttons: 0,
+        clickCount: 0,
+      });
+      await session.sendCommand("Input.dispatchMouseEvent", {
+        type: "mousePressed",
+        x: x1,
+        y: y1,
+        button: "left",
+        buttons: 1,
+        clickCount: 1,
+      });
+      for (let i = 1; i <= totalSteps; i++) {
+        const ratio = i / totalSteps;
+        await session.sendCommand("Input.dispatchMouseEvent", {
+          type: "mouseMoved",
+          x: Math.round(x1 + (x2 - x1) * ratio),
+          y: Math.round(y1 + (y2 - y1) * ratio),
+          button: "left",
+          buttons: 1,
+          clickCount: 1,
+        });
+        if (moveDelayMs > 0 && i < totalSteps) {
+          await sleep(moveDelayMs);
+        }
+      }
+      await session.sendCommand("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        x: x2,
+        y: y2,
+        button: "left",
+        buttons: 0,
+        clickCount: 1,
+      });
+      return {
+        mode: "mouse",
+        fallbackFrom: touchError instanceof Error ? touchError.message : String(touchError),
+      };
+    }
   }
 
   /**
@@ -272,7 +528,7 @@ function createGateway(config) {
     if (op === "injectFile") {
       const rel = String(msg.path ?? "");
       if (!rel) throw new Error("injectFile.path required");
-      const base = path.join(__dirname, "..", "..");
+      const base = path.join(__dirname, "..");
       const abs = path.resolve(base, rel);
       if (!abs.startsWith(base)) {
         throw new Error("injectFile.path must stay under project root");
@@ -298,6 +554,121 @@ function createGateway(config) {
 
     if (op === "previewCapture") {
       return await previewManager.capture(msg.options);
+    }
+
+    if (op === "previewTap") {
+      const x = Number(msg.x);
+      const y = Number(msg.y);
+      const hold = msg.hold == null ? 32 : Number(msg.hold);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error("previewTap.x / previewTap.y 必须为数字");
+      }
+      if (!Number.isFinite(hold) || hold < 0) {
+        throw new Error("previewTap.hold 必须为非负数字");
+      }
+      const dispatchResult = await dispatchCdpTap(session, x, y, hold);
+      return {
+        x,
+        y,
+        hold,
+        result: dispatchResult,
+      };
+    }
+
+    if (op === "previewDragStart") {
+      const x = Number(msg.x);
+      const y = Number(msg.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error("previewDragStart.x / y 必须为数字");
+      }
+      return await enqueuePreviewInput(socket, async () => {
+        const existing = previewDragSessions.get(socket);
+        if (existing) {
+          try {
+            await endCdpDrag(existing, existing.currentX, existing.currentY);
+          } catch (_) {}
+          previewDragSessions.delete(socket);
+        }
+        const state = await beginCdpDrag(session, x, y);
+        previewDragSessions.set(socket, state);
+        return {
+          x,
+          y,
+          result: {
+            mode: state.mode,
+            fallbackFrom: state.fallbackFrom || null,
+          },
+        };
+      });
+    }
+
+    if (op === "previewDragMove") {
+      const x = Number(msg.x);
+      const y = Number(msg.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error("previewDragMove.x / y 必须为数字");
+      }
+      return await enqueuePreviewInput(socket, async () => {
+        const state = previewDragSessions.get(socket);
+        if (!state) {
+          throw new Error("当前没有活动中的预览拖动");
+        }
+        await moveCdpDrag(state, x, y);
+        return {
+          x,
+          y,
+          result: {
+            mode: state.mode,
+            fallbackFrom: state.fallbackFrom || null,
+          },
+        };
+      });
+    }
+
+    if (op === "previewDragEnd") {
+      const x = Number(msg.x);
+      const y = Number(msg.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error("previewDragEnd.x / y 必须为数字");
+      }
+      return await enqueuePreviewInput(socket, async () => {
+        const state = previewDragSessions.get(socket);
+        if (!state) {
+          throw new Error("当前没有活动中的预览拖动");
+        }
+        await endCdpDrag(state, x, y);
+        previewDragSessions.delete(socket);
+        return {
+          x,
+          y,
+          result: {
+            mode: state.mode,
+            fallbackFrom: state.fallbackFrom || null,
+          },
+        };
+      });
+    }
+
+    if (op === "previewSwipe") {
+      const x1 = Number(msg.x1);
+      const y1 = Number(msg.y1);
+      const x2 = Number(msg.x2);
+      const y2 = Number(msg.y2);
+      const durationMs = clampInt(msg.durationMs, 220, 0, 5_000);
+      const steps = clampInt(msg.steps, 8, 1, 60);
+      if (![x1, y1, x2, y2].every((n) => Number.isFinite(n))) {
+        throw new Error("previewSwipe.x1/y1/x2/y2 必须为数字");
+      }
+      const dispatchResult = await dispatchCdpSwipe(session, x1, y1, x2, y2, durationMs, steps);
+      return {
+        x1,
+        y1,
+        x2,
+        y2,
+        durationMs,
+        steps,
+        result: dispatchResult,
+      };
     }
 
     throw new Error(`unknown op: ${op}`);
@@ -503,6 +874,11 @@ function createGateway(config) {
       }
     });
     socket.on("close", () => {
+      const dragState = previewDragSessions.get(socket);
+      if (dragState) {
+        previewDragSessions.delete(socket);
+        void endCdpDrag(dragState, dragState.currentX, dragState.currentY).catch(() => {});
+      }
       previewManager.removeSocket(socket);
       const state = previewManager.getState();
       if (state.running && state.subscriberCount === 0) {

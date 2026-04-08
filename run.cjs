@@ -5,4 +5,4 @@
 "use strict";
 
 require("./wmpf/src/index.js");
-require("./src/gateway/index.js");
+require("./src/index.js");

@@ -1,7 +1,7 @@
 "use strict";
 
-const fs = require("node:fs/promises");
-const path = require("node:path");
+const { ensureGameCtl, callGameCtl } = require("./game-ctl-utils");
+const { runAutoFarmCycle } = require("./auto-farm-executor");
 
 function toBool(value, defaultValue) {
   if (value == null) return defaultValue;
@@ -36,22 +36,6 @@ function normalizeAutoFarmConfig(raw) {
   };
 }
 
-function wrapCallExpression(dotPath, args) {
-  const parts = String(dotPath || "").split(".").filter(Boolean);
-  if (parts.length === 0) throw new Error("call.path empty");
-  const jsonArgs = JSON.stringify(args ?? []);
-  return `(async () => {
-    const _path = ${JSON.stringify(parts)};
-    let cur = globalThis;
-    for (let i = 0; i < _path.length; i++) {
-      cur = cur[_path[i]];
-      if (cur == null) throw new Error('call path not found at: ' + _path.slice(0, i + 1).join('.'));
-    }
-    if (typeof cur !== 'function') throw new Error('call path is not a function: ' + _path.join('.'));
-    return await cur.apply(null, ${jsonArgs});
-  })()`;
-}
-
 class AutoFarmManager {
   /**
    * @param {{
@@ -64,8 +48,6 @@ class AutoFarmManager {
     this.ensureCdp = opts.ensureCdp;
     this.getCdp = opts.getCdp;
     this.projectRoot = opts.projectRoot;
-    this.buttonScriptPath = path.join(this.projectRoot, "button.js");
-    this.buttonScriptCache = null;
     this.timer = null;
     this.running = false;
     this.busy = false;
@@ -157,7 +139,19 @@ class AutoFarmManager {
     this.nextRunAt = new Date(Date.now() + delay).toISOString();
     this.timer = setTimeout(() => {
       this.timer = null;
-      void this._tick();
+      void this._tick().catch((error) => {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.lastFinishedAt = new Date().toISOString();
+        this.lastError = err.message;
+        this._pushEvent("error", `调度异常: ${err.message}`);
+        if (this.config.autoFarmStopOnError) {
+          this.stop(`error: ${err.message}`);
+          return;
+        }
+        if (this.running) {
+          this._schedule(1000);
+        }
+      });
     }, delay);
   }
 
@@ -201,52 +195,36 @@ class AutoFarmManager {
       this._schedule(this._computeNextDelayMs(now));
       return;
     }
+    let shouldReschedule = true;
     try {
       await this._runCycle(false, due);
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      if (this.config.autoFarmStopOnError) {
+        shouldReschedule = false;
+        this.stop(`error: ${err.message}`);
+        return;
+      }
     } finally {
-      if (this.running) {
+      if (shouldReschedule && this.running) {
         this._schedule(this._computeNextDelayMs(Date.now()));
       }
     }
   }
 
-  async _readButtonScript() {
-    if (this.buttonScriptCache != null) return this.buttonScriptCache;
-    this.buttonScriptCache = await fs.readFile(this.buttonScriptPath, "utf8");
-    return this.buttonScriptCache;
-  }
-
   async _ensureGameCtl(session) {
-    const probeExpr = `(() => ({
-      hasGameCtl: typeof gameCtl === "object",
-      hasRunAutoFarmCycle: typeof gameCtl === "object" && typeof gameCtl.runAutoFarmCycle === "function",
-      hasEnterOwnFarm: typeof gameCtl === "object" && typeof gameCtl.enterOwnFarm === "function"
-    }))()`;
-
-    let state = null;
-    try {
-      state = await session.evaluate(probeExpr, { awaitPromise: true });
-    } catch (_) {
-      state = null;
-    }
-    if (state && state.hasRunAutoFarmCycle && state.hasEnterOwnFarm) {
-      return { injected: false, state };
-    }
-
-    const script = await this._readButtonScript();
-    await session.evaluate(`(async () => { ${script}\n; return { injected: true }; })()`, {
-      awaitPromise: true,
-    });
-    state = await session.evaluate(probeExpr, { awaitPromise: true });
-    if (!state || !state.hasRunAutoFarmCycle) {
-      throw new Error("button.js 注入后 gameCtl.runAutoFarmCycle 仍不可用");
-    }
-    return { injected: true, state };
+    return await ensureGameCtl(session, this.projectRoot, [
+      "getFarmOwnership",
+      "getFarmStatus",
+      "getFriendList",
+      "enterOwnFarm",
+      "enterFriendFarm",
+      "triggerOneClickOperation",
+    ]);
   }
 
   async _callGameCtl(session, pathName, args) {
-    const expr = wrapCallExpression(pathName, args);
-    return await session.evaluate(expr, { awaitPromise: true });
+    return await callGameCtl(session, pathName, args);
   }
 
   async _runCycle(force, dueFlags) {
@@ -275,7 +253,11 @@ class AutoFarmManager {
         returnHome: this.config.autoFarmReturnHome,
         stopOnError: this.config.autoFarmStopOnError,
       };
-      const result = await this._callGameCtl(session, "gameCtl.runAutoFarmCycle", [cycleOpts]);
+      const result = await runAutoFarmCycle({
+        session,
+        callGameCtl: this._callGameCtl.bind(this),
+        options: cycleOpts,
+      });
       this.lastFinishedAt = new Date().toISOString();
       this.lastResult = {
         injected: injectState.injected,

@@ -13,7 +13,7 @@ hook代码感谢[evi0s/WMPFDebugger](https://github.com/evi0s/WMPFDebugger)
 | 路径 | 说明 |
 |------|------|
 | **`wmpf/`** | Hook 与调试服务：`frida/hook.js`、`frida/config/addresses.*.json`、`src/*.js`（已由 TS 编译为纯 JS）。勿改 Frida 相对路径结构。 |
-| **`src/gateway/`** | 连接本机 CDP 的网关（HTTP 静态页 + WebSocket）。 |
+| **`src/`** | 连接本机 CDP 的网关与自动化编排（HTTP 静态页 + WebSocket）。 |
 | **`public/`** | 浏览器控制页：`index.html`（注入 `button.js`、拉取土地汇总）。 |
 | **`button.js`** | 放在**仓库根目录**；`--auto-farm` 时从当前工作目录解析为根目录下的 `button.js`。 |
 

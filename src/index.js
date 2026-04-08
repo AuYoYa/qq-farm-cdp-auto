@@ -8,7 +8,7 @@ const config = getConfig();
 
 let wmpfBridgeOk = false;
 try {
-  const wmpf = require(path.join(__dirname, "..", "..", "wmpf", "src", "index.js"));
+  const wmpf = require(path.join(__dirname, "..", "wmpf", "src", "index.js"));
   wmpfBridgeOk = !!(config.useWmpfCdpBridge !== false && wmpf && wmpf.debugMessageEmitter);
 } catch (_) {
   wmpfBridgeOk = false;

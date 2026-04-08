@@ -5,6 +5,7 @@
 
   const doc = (G.GameGlobal && G.GameGlobal.document) || G.document;
   const canvas = (cc.game && cc.game.canvas) || G.canvas || (G.GameGlobal && G.GameGlobal.canvas);
+  let cachedSelfGid = null;
 
   function out(v) {
     try { console.dir(v); } catch (_) {}
@@ -14,6 +15,12 @@
   function wait(ms) {
     ms = Number(ms) || 0;
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function rememberSelfGid(value) {
+    const gid = toPositiveNumber(value);
+    if (gid != null) cachedSelfGid = gid;
+    return gid;
   }
 
   function roundNum(n) {
@@ -170,6 +177,77 @@
     const node = toNode(pathOrNode);
     if (!node) throw new Error('Node not found: ' + pathOrNode);
     return worldToClient(getNodeCenterWorld(node));
+  }
+
+  function getViewportInfo() {
+    const dpr = G.devicePixelRatio || 1;
+    let width = canvas && typeof canvas.width === 'number' ? canvas.width / dpr : null;
+    let height = canvas && typeof canvas.height === 'number' ? canvas.height / dpr : null;
+
+    if ((!width || !height) && cc.view && typeof cc.view.getVisibleSize === 'function') {
+      try {
+        const visible = cc.view.getVisibleSize();
+        if (visible) {
+          width = width || Number(visible.width) || null;
+          height = height || Number(visible.height) || null;
+        }
+      } catch (_) {}
+    }
+
+    if ((!width || !height) && cc.winSize) {
+      width = width || Number(cc.winSize.width) || null;
+      height = height || Number(cc.winSize.height) || null;
+    }
+
+    return {
+      width: roundNum(width || 0),
+      height: roundNum(height || 0),
+      dpr
+    };
+  }
+
+  function getNodeScreenRect(pathOrNode, opts) {
+    opts = opts || {};
+    const node = toNode(pathOrNode);
+    if (!node || !node.getComponent) return null;
+
+    const ui = node.getComponent(cc.UITransform);
+    if (!ui || typeof ui.getBoundingBoxToWorld !== 'function') return null;
+
+    let box = null;
+    try {
+      box = ui.getBoundingBoxToWorld();
+    } catch (_) {
+      box = null;
+    }
+    if (!box || !isFinite(box.width) || !isFinite(box.height)) return null;
+
+    let topLeft = null;
+    let bottomRight = null;
+    try {
+      topLeft = worldToClient(new cc.Vec3(box.x, box.y + box.height, 0), opts.camera);
+      bottomRight = worldToClient(new cc.Vec3(box.x + box.width, box.y, 0), opts.camera);
+    } catch (_) {
+      return null;
+    }
+
+    const left = roundNum(Math.min(topLeft.x, bottomRight.x));
+    const right = roundNum(Math.max(topLeft.x, bottomRight.x));
+    const top = roundNum(Math.min(topLeft.y, bottomRight.y));
+    const bottom = roundNum(Math.max(topLeft.y, bottomRight.y));
+    const width = roundNum(Math.max(0, right - left));
+    const height = roundNum(Math.max(0, bottom - top));
+
+    return {
+      left,
+      top,
+      right,
+      bottom,
+      width,
+      height,
+      centerX: roundNum(left + width / 2),
+      centerY: roundNum(top + height / 2)
+    };
   }
 
   function describeNode(node, opts) {
@@ -859,8 +937,45 @@
   }
 
   function getSelfGid() {
+    let ownership = null;
     const watchState = readGlobalFarmWatchState();
-    return watchState && watchState.selfGid != null ? watchState.selfGid : null;
+    if (watchState) {
+      if (watchState.selfGid != null) return rememberSelfGid(watchState.selfGid);
+      if (watchState.isOwnFarm === true && watchState.curWatchFarmGid != null) {
+        return rememberSelfGid(watchState.curWatchFarmGid);
+      }
+    }
+
+    try {
+      ownership = getFarmOwnership({ silent: true, allowWeakUi: true });
+    } catch (_) {
+      ownership = null;
+    }
+
+    if (ownership && ownership.farmType === 'own' && ownership.evidence) {
+      const evidence = ownership.evidence;
+      const currentUserGid = rememberSelfGid(evidence.farmModel && evidence.farmModel.currentUserGid);
+      if (currentUserGid != null) return currentUserGid;
+
+      const watchGid = rememberSelfGid(evidence.globalFarmWatch && evidence.globalFarmWatch.curWatchFarmGid);
+      if (watchGid != null) return watchGid;
+    }
+
+    return cachedSelfGid;
+  }
+
+  async function waitForSelfGid(opts) {
+    opts = opts || {};
+    const timeoutMs = Math.max(0, Number(opts.timeoutMs) || 0);
+    const intervalMs = Math.max(50, Number(opts.intervalMs) || 100);
+    const deadlineAt = Date.now() + timeoutMs;
+
+    while (true) {
+      const gid = getSelfGid();
+      if (gid != null) return gid;
+      if (timeoutMs <= 0 || Date.now() >= deadlineAt) return null;
+      await wait(Math.min(intervalMs, Math.max(0, deadlineAt - Date.now())));
+    }
   }
 
   function readGlobalFarmWatchState() {
@@ -889,6 +1004,8 @@
       const selfGid = toPositiveNumber(globalData.selfModel && globalData.selfModel.gid);
       const curWatchFarmGid = toPositiveNumber(globalData.curWatchFarmGid);
       if (selfGid == null && curWatchFarmGid == null) continue;
+
+      if (selfGid != null) rememberSelfGid(selfGid);
 
       return {
         source: item.source,
@@ -1616,6 +1733,25 @@
     return opts.silent ? payload : out(payload);
   }
 
+  function findBackHomeButtonPath(ownership) {
+    const evidence = ownership && ownership.evidence ? ownership.evidence : null;
+    if (!evidence) return null;
+
+    if (evidence.backHomeButton && evidence.backHomeButton.active && evidence.backHomeButton.path) {
+      return evidence.backHomeButton.path;
+    }
+
+    const list = evidence.activeBackHomeButtons && Array.isArray(evidence.activeBackHomeButtons.list)
+      ? evidence.activeBackHomeButtons.list
+      : [];
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      if (item && item.active && item.path) return item.path;
+    }
+
+    return null;
+  }
+
   async function enterFriendFarm(target, opts) {
     if (target && typeof target === 'object' && !Array.isArray(target) && opts == null) {
       opts = target;
@@ -1707,319 +1843,69 @@
 
   async function enterOwnFarm(opts) {
     opts = opts || {};
-    const selfGid = getSelfGid();
-    if (selfGid == null) throw new Error('self gid not ready');
-
-    const payload = await enterFarmByGid(selfGid, {
-      ...opts,
-      reason: opts.reason == null ? 'UNKNOWN' : opts.reason,
-      silent: true
-    });
-    payload.selfGid = selfGid;
-    return opts.silent ? payload : out(payload);
-  }
-
-  function buildAutomationStatusSummary(status) {
-    if (!status) return null;
-    return {
-      farmType: status.farmType,
-      totalGrids: status.totalGrids,
-      stageCounts: status.stageCounts,
-      workCounts: status.workCounts
-    };
-  }
-
-  async function runCurrentFarmOneClickTasks(opts) {
-    opts = opts || {};
-    const actionWaitMs = Math.max(0, Number(opts.actionWaitMs) || 0);
-    const statusBefore = getFarmStatus({
-      includeGrids: false,
-      includeLandIds: false,
-      silent: true
-    });
-    const farmType = statusBefore.farmType;
-    const includeCollect = opts.includeCollect !== false;
-    const includeWater = opts.includeWater !== false;
-    const includeEraseGrass = opts.includeEraseGrass !== false;
-    const includeKillBug = opts.includeKillBug !== false;
-    const specs = [];
-
-    if (includeCollect) specs.push({ key: 'collect', op: 'HARVEST' });
-    if (farmType === 'own') {
-      if (includeEraseGrass) specs.push({ key: 'eraseGrass', op: 'ERASE_GRASS' });
-      if (includeKillBug) specs.push({ key: 'killBug', op: 'KILL_BUG' });
-      if (includeWater) specs.push({ key: 'water', op: 'WATER' });
-    }
-
-    const actions = [];
-    let currentStatus = statusBefore;
-
-    for (let i = 0; i < specs.length; i++) {
-      const spec = specs[i];
-      const beforeCount = currentStatus && currentStatus.workCounts
-        ? Number(currentStatus.workCounts[spec.key]) || 0
-        : 0;
-      if (beforeCount <= 0) continue;
-
-      try {
-        const trigger = triggerOneClickOperation(spec.op, {
-          includeBefore: false,
-          includeAfter: false,
-          silent: true
-        });
-        if (actionWaitMs > 0) {
-          await wait(actionWaitMs);
-        }
-        currentStatus = getFarmStatus({
-          includeGrids: false,
-          includeLandIds: false,
-          silent: true
-        });
-        const afterCount = currentStatus && currentStatus.workCounts
-          ? Number(currentStatus.workCounts[spec.key]) || 0
-          : 0;
-        actions.push({
-          ok: true,
-          key: spec.key,
-          op: spec.op,
-          beforeCount,
-          afterCount,
-          trigger
-        });
-      } catch (e) {
-        actions.push({
-          ok: false,
-          key: spec.key,
-          op: spec.op,
-          beforeCount,
-          error: e && e.message ? e.message : String(e)
-        });
-        if (opts.stopOnError) break;
-      }
-    }
-
-    return {
-      farmType,
-      before: buildAutomationStatusSummary(statusBefore),
-      after: buildAutomationStatusSummary(currentStatus),
-      actions
-    };
-  }
-
-  async function runOwnFarmAutomation(opts) {
-    opts = opts || {};
-    const enterWaitMs = Math.max(0, Number(opts.enterWaitMs) || 0);
+    const waitMs = Math.max(0, Number(opts.waitMs) || 0);
+    const reason = resolveFarmEnterReason(opts.reason == null ? 'UNKNOWN' : opts.reason);
     let ownership = null;
     try {
-      ownership = getFarmOwnership({ silent: true });
+      ownership = getFarmOwnership({ silent: true, allowWeakUi: true });
     } catch (_) {
       ownership = null;
     }
 
-    let enterOwn = null;
-    if (!ownership || ownership.farmType !== 'own') {
-      enterOwn = await enterOwnFarm({
-        waitMs: enterWaitMs,
-        includeAfterOwnership: true,
-        silent: true
-      });
+    if (ownership && ownership.farmType === 'own') {
+      const payload = {
+        ok: true,
+        source: 'already_own',
+        reason,
+        beforeOwnership: opts.includeBeforeOwnership ? ownership : null,
+        afterOwnership: opts.includeAfterOwnership || waitMs > 0 ? ownership : null,
+        selfGid: getSelfGid()
+      };
+      return opts.silent ? payload : out(payload);
     }
 
-    const tasks = await runCurrentFarmOneClickTasks({
-      includeCollect: opts.includeCollect !== false,
-      includeWater: opts.includeWater !== false,
-      includeEraseGrass: opts.includeEraseGrass !== false,
-      includeKillBug: opts.includeKillBug !== false,
-      actionWaitMs: opts.actionWaitMs,
-      stopOnError: !!opts.stopOnError
-    });
+    const backHomePath = findBackHomeButtonPath(ownership);
+    if (backHomePath) {
+      smartClick(backHomePath);
+      if (waitMs > 0) {
+        await wait(waitMs);
+      }
 
-    const payload = {
-      ok: true,
-      enterOwn,
-      tasks
-    };
-
-    return opts.silent ? payload : out(payload);
-  }
-
-  async function runFriendStealAutomation(opts) {
-    opts = opts || {};
-    const enterWaitMs = Math.max(0, Number(opts.enterWaitMs) || 0);
-    const actionWaitMs = Math.max(0, Number(opts.actionWaitMs) || 0);
-    const maxFriends = Math.max(0, Number(opts.maxFriends) || 0) || 5;
-    const friendData = await getFriendEntries({
-      refresh: opts.refresh !== false,
-      sort: true,
-      includeSelf: false
-    });
-    const candidates = friendData.entries
-      .map(entry => entry.item)
-      .filter(item => item && item.workCounts && Number(item.workCounts.collect) > 0)
-      .sort((a, b) => {
-        const diff = (Number(b.workCounts.collect) || 0) - (Number(a.workCounts.collect) || 0);
-        if (diff !== 0) return diff;
-        return (Number(a.rank) || 0) - (Number(b.rank) || 0);
-      })
-      .slice(0, maxFriends);
-    const visits = [];
-
-    for (let i = 0; i < candidates.length; i++) {
-      const friend = candidates[i];
-      try {
-        const enter = await enterFriendFarm(friend.gid, {
-          waitMs: enterWaitMs,
-          includeAfterOwnership: true,
-          silent: true
-        });
-        const beforeStatus = getFarmStatus({
-          includeGrids: false,
-          includeLandIds: false,
-          silent: true
-        });
-        if (beforeStatus.farmType !== 'friend') {
-          visits.push({
-            ok: false,
-            friend,
-            enter,
-            reason: 'not_in_friend_farm',
-            status: buildAutomationStatusSummary(beforeStatus)
-          });
-          continue;
+      let afterOwnership = null;
+      if (opts.includeAfterOwnership || waitMs > 0) {
+        try {
+          afterOwnership = getFarmOwnership({ silent: true, allowWeakUi: true });
+        } catch (_) {
+          afterOwnership = null;
         }
+      }
 
-        const collectBefore = beforeStatus.workCounts ? Number(beforeStatus.workCounts.collect) || 0 : 0;
-        if (collectBefore <= 0) {
-          visits.push({
-            ok: true,
-            friend,
-            enter,
-            reason: 'no_collectable_after_enter',
-            before: buildAutomationStatusSummary(beforeStatus),
-            after: buildAutomationStatusSummary(beforeStatus)
-          });
-          continue;
-        }
-
-        const trigger = triggerOneClickOperation('HARVEST', {
-          includeBefore: false,
-          includeAfter: false,
-          silent: true
-        });
-        if (actionWaitMs > 0) {
-          await wait(actionWaitMs);
-        }
-        const afterStatus = getFarmStatus({
-          includeGrids: false,
-          includeLandIds: false,
-          silent: true
-        });
-        const collectAfter = afterStatus.workCounts ? Number(afterStatus.workCounts.collect) || 0 : 0;
-        visits.push({
+      if (!afterOwnership || afterOwnership.farmType === 'own') {
+        const payload = {
           ok: true,
-          friend,
-          enter,
-          before: buildAutomationStatusSummary(beforeStatus),
-          after: buildAutomationStatusSummary(afterStatus),
-          trigger,
-          collectBefore,
-          collectAfter
-        });
-      } catch (e) {
-        visits.push({
-          ok: false,
-          friend,
-          error: e && e.message ? e.message : String(e)
-        });
-        if (opts.stopOnError) break;
-      }
-    }
-
-    let returnHome = null;
-    if (opts.returnHome !== false) {
-      try {
-        returnHome = await enterOwnFarm({
-          waitMs: enterWaitMs,
-          includeAfterOwnership: true,
-          silent: true
-        });
-      } catch (e) {
-        returnHome = {
-          ok: false,
-          error: e && e.message ? e.message : String(e)
+          source: 'back_home_button',
+          path: backHomePath,
+          reason,
+          beforeOwnership: opts.includeBeforeOwnership ? ownership : null,
+          afterOwnership,
+          selfGid: getSelfGid()
         };
+        return opts.silent ? payload : out(payload);
       }
     }
 
-    const payload = {
-      ok: true,
-      requestedRefresh: friendData.requestedRefresh,
-      refreshed: friendData.refreshed,
-      refreshError: friendData.refreshError,
-      refreshMode: friendData.refreshMode,
-      totalCandidates: friendData.totalCount,
-      stealableCandidates: candidates.length,
-      visits,
-      returnHome
-    };
+    const selfGid = await waitForSelfGid({
+      timeoutMs: Math.max(waitMs, 1500),
+      intervalMs: 100
+    });
+    if (selfGid == null) throw new Error('self gid not ready');
 
-    return opts.silent ? payload : out(payload);
-  }
-
-  async function runAutoFarmCycle(opts) {
-    opts = opts || {};
-    const startedAt = new Date().toISOString();
-    const ownFarmEnabled = opts.ownFarmEnabled !== false;
-    const friendStealEnabled = !!opts.friendStealEnabled;
-    const payload = {
-      ok: true,
-      startedAt,
-      ownFarmEnabled,
-      friendStealEnabled,
-      initialOwnership: null,
-      ownFarm: null,
-      friendSteal: null,
-      finalOwnership: null
-    };
-
-    try {
-      payload.initialOwnership = getFarmOwnership({ silent: true });
-    } catch (_) {
-      payload.initialOwnership = null;
-    }
-
-    if (ownFarmEnabled) {
-      payload.ownFarm = await runOwnFarmAutomation({
-        includeCollect: opts.includeCollect !== false,
-        includeWater: opts.includeWater !== false,
-        includeEraseGrass: opts.includeEraseGrass !== false,
-        includeKillBug: opts.includeKillBug !== false,
-        enterWaitMs: opts.enterWaitMs,
-        actionWaitMs: opts.actionWaitMs,
-        stopOnError: !!opts.stopOnError,
-        silent: true
-      });
-    }
-
-    if (friendStealEnabled) {
-      payload.friendSteal = await runFriendStealAutomation({
-        refresh: opts.refreshFriendList !== false,
-        maxFriends: opts.maxFriends,
-        enterWaitMs: opts.enterWaitMs,
-        actionWaitMs: opts.actionWaitMs,
-        returnHome: opts.returnHome !== false,
-        stopOnError: !!opts.stopOnError,
-        silent: true
-      });
-    }
-
-    try {
-      payload.finalOwnership = getFarmOwnership({ silent: true });
-    } catch (_) {
-      payload.finalOwnership = null;
-    }
-
-    payload.finishedAt = new Date().toISOString();
+    const payload = await enterFarmByGid(selfGid, {
+      ...opts,
+      reason: reason.value,
+      silent: true
+    });
+    payload.selfGid = selfGid;
     return opts.silent ? payload : out(payload);
   }
 
@@ -2963,6 +2849,274 @@
     return false;
   }
 
+  function rectArea(rect) {
+    return rect ? Math.max(0, Number(rect.width) || 0) * Math.max(0, Number(rect.height) || 0) : 0;
+  }
+
+  function pointInRect(point, rect) {
+    if (!point || !rect) return false;
+    return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+  }
+
+  function buildOverlayCloseButtons(node, closeKeywords, camera) {
+    return walk(node)
+      .filter(child => !!(child && child.activeInHierarchy && child.getComponent))
+      .map(child => {
+        const btn = child.getComponent(cc.Button);
+        if (!btn || !btn.interactable || !btn.enabledInHierarchy) return null;
+        const texts = getNodeTextList(child, { maxDepth: 2 });
+        const handlers = getHandlers(btn).map(item => item.text);
+        const info = describeNode(child, { camera });
+        const haystack = [info.path, info.relativePath, info.name].concat(info.components || [], texts, handlers);
+        if (!matchesKeywords(haystack, closeKeywords)) return null;
+        const rect = getNodeScreenRect(child, { camera });
+        return {
+          path: info.path,
+          relativePath: info.relativePath,
+          name: info.name,
+          texts,
+          handlers,
+          rect
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => rectArea(a.rect) - rectArea(b.rect))
+      .slice(0, 6);
+  }
+
+  function buildOverlayBlankTapPoint(node, overlayRect, viewport, camera) {
+    if (!overlayRect || !viewport || !viewport.width || !viewport.height) return null;
+
+    const overlayArea = rectArea(overlayRect);
+    const descendants = walk(node)
+      .slice(1)
+      .filter(child => !!(child && child.activeInHierarchy))
+      .map(child => ({
+        node: child,
+        rect: getNodeScreenRect(child, { camera })
+      }))
+      .filter(item => item.rect)
+      .filter(item => rectArea(item.rect) >= overlayArea * 0.08)
+      .filter(item => rectArea(item.rect) <= overlayArea * 0.92)
+      .sort((a, b) => rectArea(b.rect) - rectArea(a.rect));
+
+    const blockingRects = descendants.slice(0, 8).map(item => item.rect);
+    const panelRect = blockingRects.length > 0 ? blockingRects[0] : null;
+    const margin = 24;
+    const points = [];
+
+    function pushPoint(x, y, reason) {
+      const point = {
+        x: roundNum(x),
+        y: roundNum(y),
+        reason
+      };
+      if (!pointInRect(point, overlayRect)) return;
+      for (let i = 0; i < blockingRects.length; i++) {
+        if (pointInRect(point, blockingRects[i])) return;
+      }
+      points.push(point);
+    }
+
+    if (panelRect) {
+      pushPoint(overlayRect.centerX, Math.max(overlayRect.top + margin, roundNum((overlayRect.top + panelRect.top) / 2)), 'above_panel');
+      pushPoint(overlayRect.centerX, Math.min(overlayRect.bottom - margin, roundNum((panelRect.bottom + overlayRect.bottom) / 2)), 'below_panel');
+      pushPoint(Math.max(overlayRect.left + margin, roundNum((overlayRect.left + panelRect.left) / 2)), overlayRect.centerY, 'left_of_panel');
+      pushPoint(Math.min(overlayRect.right - margin, roundNum((panelRect.right + overlayRect.right) / 2)), overlayRect.centerY, 'right_of_panel');
+    }
+
+    pushPoint(overlayRect.left + margin, overlayRect.top + margin, 'top_left');
+    pushPoint(overlayRect.right - margin, overlayRect.top + margin, 'top_right');
+    pushPoint(overlayRect.left + margin, overlayRect.bottom - margin, 'bottom_left');
+    pushPoint(overlayRect.right - margin, overlayRect.bottom - margin, 'bottom_right');
+
+    return points.length > 0 ? points[0] : null;
+  }
+
+  function detectActiveOverlays(opts) {
+    opts = opts || {};
+    const root = scene();
+    const camera = getCamera();
+    const viewport = getViewportInfo();
+    const viewportArea = Math.max(1, viewport.width * viewport.height);
+    const overlayKeywords = normalizeKeywords(opts.keywords || opts.keyword || [
+      'mask', 'overlay', 'popup', 'dialog', 'modal', 'reward', 'award', 'prize', 'gift', 'panel',
+      '获得', '奖励', '道具', '礼包', '弹窗', '蒙层', '遮罩'
+    ]);
+    const excludeKeywords = normalizeKeywords(opts.excludeKeywords || [
+      'farm_scene', 'farm_scene_v3', 'gridorigin', 'plantorigin', 'main_ui_v2', 'layerui',
+      'mainmenucomp', 'mainuicomp', 'oneclickoperationtools', 'node_warehouse', 'menu', 'foot', 'root'
+    ]);
+    const closeKeywords = normalizeKeywords(opts.closeKeywords || [
+      'close', 'btn_close', 'cancel', 'ok', 'confirm', 'sure', 'back', 'x',
+      '关闭', '取消', '确定', '知道了', '收下'
+    ]);
+    const minAreaRatio = opts.minAreaRatio == null ? 0.12 : Math.max(0, Number(opts.minAreaRatio) || 0);
+    const minScore = opts.minScore == null ? 4 : Number(opts.minScore) || 0;
+    const limit = opts.limit == null ? 8 : Math.max(1, Number(opts.limit) || 1);
+
+    const rawCandidates = walk(root)
+      .filter(node => !!(node && node.activeInHierarchy && node !== root && node.getComponent))
+      .map(node => {
+        const info = describeNode(node, { baseNode: root, camera });
+        const rect = getNodeScreenRect(node, { camera });
+        if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+
+        const areaRatio = rectArea(rect) / viewportArea;
+        if (areaRatio < minAreaRatio) return null;
+
+        const texts = getNodeTextList(node, { maxDepth: 2 });
+        const haystack = [info.path, info.relativePath, info.name].concat(info.components || [], texts);
+        let score = 0;
+        const reasons = [];
+
+        if (areaRatio >= 0.7) {
+          score += 4;
+          reasons.push('fullscreen');
+        } else if (areaRatio >= 0.4) {
+          score += 3;
+          reasons.push('large_area');
+        } else {
+          score += 1;
+          reasons.push('area');
+        }
+
+        if (matchesKeywords(haystack, overlayKeywords)) {
+          score += 3;
+          reasons.push('keyword');
+        }
+
+        if (matchesKeywords(info.components || [], ['blockinputevents'])) {
+          score += 4;
+          reasons.push('block_input');
+        }
+
+        if (matchesKeywords(info.components || [], ['button'])) {
+          score += 1;
+          reasons.push('button_component');
+        }
+
+        if (info.depth >= 5) {
+          score += 1;
+          reasons.push('deep_ui');
+        }
+
+        if (matchesKeywords([info.name].concat(info.components || []), excludeKeywords)) {
+          score -= 4;
+          reasons.push('common_ui_penalty');
+        }
+
+        if (info.depth <= 2) {
+          score -= 2;
+          reasons.push('shallow_penalty');
+        }
+
+        if (info.childCount > 80) {
+          score -= 2;
+          reasons.push('too_many_children_penalty');
+        }
+
+        if (score < minScore) return null;
+
+        return {
+          node,
+          info,
+          rect,
+          texts,
+          areaRatio: roundNum(areaRatio),
+          score,
+          reasons
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.areaRatio !== a.areaRatio) return b.areaRatio - a.areaRatio;
+        return b.info.depth - a.info.depth;
+      })
+      .slice(0, limit);
+
+    const list = rawCandidates.map(item => {
+      const closeButtons = buildOverlayCloseButtons(item.node, closeKeywords, camera);
+      const blankTapPoint = buildOverlayBlankTapPoint(item.node, item.rect, viewport, camera);
+      return {
+        path: item.info.path,
+        relativePath: item.info.relativePath,
+        name: item.info.name,
+        depth: item.info.depth,
+        childCount: item.info.childCount,
+        components: item.info.components,
+        texts: item.texts,
+        rect: item.rect,
+        areaRatio: item.areaRatio,
+        score: item.score,
+        reasons: item.reasons,
+        closeButtons,
+        closeButtonCount: closeButtons.length,
+        blankTapPoint
+      };
+    });
+
+    const payload = {
+      viewport,
+      count: list.length,
+      list
+    };
+    return opts.silent ? payload : out(payload);
+  }
+
+  async function dismissActiveOverlay(opts) {
+    opts = opts || {};
+    const hold = opts.hold == null ? 32 : Number(opts.hold);
+    const waitAfter = opts.waitAfter == null ? 300 : Number(opts.waitAfter);
+    const detected = detectActiveOverlays({
+      ...opts,
+      silent: true,
+      limit: opts.limit == null ? 1 : opts.limit
+    });
+    const target = detected && Array.isArray(detected.list) && detected.list.length > 0 ? detected.list[0] : null;
+    if (!target) {
+      const miss = { ok: false, reason: 'overlay_not_found', detected };
+      return opts.silent ? miss : out(miss);
+    }
+
+    let action = null;
+    if (target.closeButtons && target.closeButtons.length > 0) {
+      action = {
+        type: 'close_button',
+        button: target.closeButtons[0],
+        result: smartClick(target.closeButtons[0].path)
+      };
+    } else if (target.blankTapPoint) {
+      action = {
+        type: 'blank_tap',
+        point: target.blankTapPoint,
+        result: tap(target.blankTapPoint.x, target.blankTapPoint.y, hold)
+      };
+    } else {
+      const miss = { ok: false, reason: 'dismiss_target_not_found', target };
+      return opts.silent ? miss : out(miss);
+    }
+
+    if (waitAfter > 0) {
+      await wait(waitAfter);
+    }
+
+    const after = detectActiveOverlays({
+      ...opts,
+      silent: true,
+      limit: opts.limit == null ? 3 : opts.limit
+    });
+
+    const payload = {
+      ok: true,
+      target,
+      action,
+      after
+    };
+    return opts.silent ? payload : out(payload);
+  }
+
   function farmNodes(opts) {
     opts = opts || {};
     const root = findFarmRoot(opts.root || opts.path);
@@ -3335,7 +3489,9 @@
     buttonInfo,
     triggerButton,
     tap,
+    getViewportInfo,
     nodeToClient,
+    getNodeScreenRect,
     tapNode,
     smartClick,
     findFarmRoot,
@@ -3349,7 +3505,6 @@
     enterFarmByGid,
     enterOwnFarm,
     enterFriendFarm,
-    runAutoFarmCycle,
     getFarmEntity,
     getFarmModel,
     getFarmWorkSummary,
@@ -3383,6 +3538,8 @@
     triggerOneClickHarvest,
     openLandInteraction,
     openLandAndDiffButtons,
+    detectActiveOverlays,
+    dismissActiveOverlay,
     snapshotNode,
     diffSnapshots,
     tapAndSnapshot,
@@ -3397,13 +3554,14 @@
     api: [
       'gameCtl.dumpButtons(keyword, opts)',
       'gameCtl.smartClick(path, index)',
+      'gameCtl.detectActiveOverlays(opts)',
+      'gameCtl.dismissActiveOverlay(opts)',
       'gameCtl.dumpFarmNodes(keyword, opts)',
       'gameCtl.dumpFarmCandidates(keyword, opts)',
       'gameCtl.getFarmOwnership()',
       'gameCtl.getFriendList(opts)',
       'gameCtl.enterOwnFarm(opts)',
       'gameCtl.enterFriendFarm(target, opts)',
-      'gameCtl.runAutoFarmCycle(opts)',
       'gameCtl.getFarmWorkSummary()',
       'gameCtl.getFarmStatus()',
       'gameCtl.getGridState(path)',

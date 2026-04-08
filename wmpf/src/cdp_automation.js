@@ -138,6 +138,8 @@ class InternalCdpClient extends node_events_1.EventEmitter {
             if (typeof method !== "string") {
                 return;
             }
+            this.emit("cdpEvent", message);
+            this.emit(method, message.params ?? {}, message);
             if (method === "Runtime.executionContextCreated") {
                 const params = message.params;
                 const context = params?.context;

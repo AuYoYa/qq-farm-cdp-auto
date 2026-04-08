@@ -1,15 +1,17 @@
 /**
  * 通过 WebSocket 与 Chrome DevTools Protocol（或 wmpf CDP 代理）通信，
- * 仅封装本项目需要的 Runtime.* 调用。
+ * 封装本项目需要的 evaluate / 通用命令 / 事件透传。
  */
 
+const { EventEmitter } = require("node:events");
 const WebSocket = require("ws");
 
-class CdpSession {
+class CdpSession extends EventEmitter {
   /**
    * @param {{ url: string; timeoutMs?: number }} opts
    */
   constructor(opts) {
+    super();
     this.url = opts.url;
     this.timeoutMs = opts.timeoutMs ?? 8000;
     /** @type {WebSocket | null} */
@@ -56,6 +58,12 @@ class CdpSession {
         } else {
           p.resolve(msg.result);
         }
+        return;
+      }
+
+      if (typeof msg.method === "string") {
+        this.emit("cdpEvent", msg);
+        this.emit(msg.method, msg.params ?? {}, msg);
       }
     });
 
@@ -74,7 +82,7 @@ class CdpSession {
    * @param {string} method
    * @param {Record<string, unknown>} params
    */
-  send(method, params) {
+  send(method, params, timeoutMs = this.timeoutMs) {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error("CDP not connected"));
@@ -84,12 +92,16 @@ class CdpSession {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`CDP timeout: ${method} (${this.timeoutMs}ms)`));
-      }, this.timeoutMs);
+        reject(new Error(`CDP timeout: ${method} (${timeoutMs}ms)`));
+      }, timeoutMs);
 
       this.pending.set(id, { resolve, reject, timer });
       ws.send(JSON.stringify({ id, method, params }));
     });
+  }
+
+  sendCommand(method, params = {}, timeoutMs = this.timeoutMs) {
+    return this.send(method, params, timeoutMs);
   }
 
   /**

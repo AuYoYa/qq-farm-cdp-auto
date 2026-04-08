@@ -3,6 +3,7 @@
  * 在 CDP 代理有客户端连接 / 小程序连接时异步探测小游戏 execution context，不阻塞 connect()。
  */
 
+const { EventEmitter } = require("node:events");
 const nodePath = require("node:path");
 const {
   acquireSharedInternalCdpClient,
@@ -27,12 +28,13 @@ const gatewayLogger = {
   main_debug: (...args) => console.log("[gateway]", ...args),
 };
 
-class WmpfCdpSession {
+class WmpfCdpSession extends EventEmitter {
   /**
    * @param {ReturnType<import('./config.js').getConfig>} config
    * @param {import('node:events').EventEmitter} transport
    */
   constructor(config, transport) {
+    super();
     this.config = config;
     this.transport = transport;
     this.timeoutMs = config.cdpTimeoutMs ?? 30_000;
@@ -57,6 +59,25 @@ class WmpfCdpSession {
     this._onMiniappDisconnected;
     /** @type {(() => void) | undefined} */
     this._onMiniapp;
+    /** @type {((message: any) => void) | null} */
+    this._onClientCdpEvent = null;
+  }
+
+  _bindClientEvents() {
+    if (!this.client || this._onClientCdpEvent) return;
+    this._onClientCdpEvent = (message) => {
+      this.emit("cdpEvent", message);
+      if (message && typeof message.method === "string") {
+        this.emit(message.method, message.params ?? {}, message);
+      }
+    };
+    this.client.on("cdpEvent", this._onClientCdpEvent);
+  }
+
+  _unbindClientEvents() {
+    if (!this.client || !this._onClientCdpEvent) return;
+    this.client.off("cdpEvent", this._onClientCdpEvent);
+    this._onClientCdpEvent = null;
   }
 
   _getPrepareTimeoutMs() {
@@ -175,6 +196,7 @@ class WmpfCdpSession {
     if (this._connected) return;
     this._connected = true;
     this.client = acquireSharedInternalCdpClient(this.transport);
+    this._bindClientEvents();
     this._runtimeEnabled = false;
 
     const explicit = this.config.executionContextId;
@@ -335,6 +357,11 @@ class WmpfCdpSession {
     }
   }
 
+  async sendCommand(method, params = {}, timeoutMs = this.timeoutMs) {
+    if (!this.client) throw new Error("CDP not connected");
+    return await this.client.sendCommand(method, params, timeoutMs);
+  }
+
   /**
    * 供 /api/health 展示，不触发新的 CDP 探测。
    */
@@ -383,6 +410,7 @@ class WmpfCdpSession {
       this._prepareDebounce = null;
     }
     this.prepareGen += 1;
+    this._unbindClientEvents();
     releaseSharedInternalCdpClient();
     this.client = null;
     this.executionContextId = null;

@@ -16,6 +16,7 @@ const fs = require("node:fs/promises");
 const { CdpSession } = require("./cdp-session");
 const { WmpfCdpSession } = require("./cdp-wmpf-session");
 const { AutoFarmManager } = require("./auto-farm-manager");
+const { PreviewManager } = require("./preview-manager");
 
 const WS_PATH = "/ws";
 
@@ -150,6 +151,10 @@ function createGateway(config) {
     getCdp: () => cdp,
     projectRoot,
   });
+  const previewManager = new PreviewManager({
+    ensureCdp,
+    getCdp: () => cdp,
+  });
   loadFarmConfig()
     .then((savedConfig) => {
       autoFarmManager.updateConfig(savedConfig);
@@ -227,7 +232,7 @@ function createGateway(config) {
   /**
    * @param {Record<string, unknown>} msg
    */
-  async function dispatch(msg) {
+  async function dispatch(msg, socket) {
     const op = String(msg.op || "");
 
     if (op === "ping") {
@@ -238,6 +243,7 @@ function createGateway(config) {
         pong: true,
         cdpUrl: config.cdpWsUrl,
         cdp: snap,
+        preview: previewManager.getState(),
         cdpProbeTimedOut: timedOut,
       };
     }
@@ -277,6 +283,23 @@ function createGateway(config) {
       return value;
     }
 
+    if (op === "previewStatus") {
+      return previewManager.getState();
+    }
+
+    if (op === "previewStart") {
+      return await previewManager.start(socket, msg.options);
+    }
+
+    if (op === "previewStop") {
+      previewManager.removeSocket(socket);
+      return await previewManager.stop("ws");
+    }
+
+    if (op === "previewCapture") {
+      return await previewManager.capture(msg.options);
+    }
+
     throw new Error(`unknown op: ${op}`);
   }
 
@@ -308,6 +331,7 @@ function createGateway(config) {
         },
         cdp: cdpSnap,
         autoFarm: autoFarmManager.getState(),
+        preview: previewManager.getState(),
         cdpSessionInitialized: cdp != null,
         cdpWarmPending: cdp == null,
         wsClients: wss.clients.size,
@@ -464,7 +488,7 @@ function createGateway(config) {
       const reqId = msg.id != null ? msg.id : null;
 
       try {
-        const result = await dispatch(msg);
+        const result = await dispatch(msg, socket);
         socket.send(JSON.stringify({ id: reqId, ok: true, result }));
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));
@@ -478,6 +502,13 @@ function createGateway(config) {
         );
       }
     });
+    socket.on("close", () => {
+      previewManager.removeSocket(socket);
+      const state = previewManager.getState();
+      if (state.running && state.subscriberCount === 0) {
+        void previewManager.stop("all sockets closed");
+      }
+    });
   });
 
   return {
@@ -485,6 +516,7 @@ function createGateway(config) {
     wss,
     close: () => {
       autoFarmManager.stop("gateway close");
+      void previewManager.close();
       if (wmpfBridge) {
         wmpfBridge.emitter.off("miniappconnected", kickEnsureCdpOnTransport);
       }

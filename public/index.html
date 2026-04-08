@@ -150,6 +150,28 @@
     }
     .hint { font-size: 0.8rem; color: var(--muted); margin-top: 0.65rem; line-height: 1.45; }
     code { font-size: 0.85em; background: var(--panel); padding: 0.1rem 0.35rem; border-radius: 0.25rem; }
+    .preview-stage {
+      background: #020617;
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      overflow: hidden;
+      min-height: 240px;
+      display: grid;
+      place-items: center;
+    }
+    .preview-stage img {
+      width: 100%;
+      max-height: min(62vh, 760px);
+      object-fit: contain;
+      display: block;
+      background: #000;
+    }
+    .preview-empty {
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding: 2rem 1rem;
+      text-align: center;
+    }
 
     .sw {
       display: flex;
@@ -216,6 +238,31 @@
         <button type="button" class="action" id="btnLand">获取土地信息</button>
         <button type="button" class="action secondary" id="btnRefreshGame">刷新游戏内状态</button>
         <button type="button" class="action secondary" id="btnClear">清空日志</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>游戏画面预览</h2>
+      <div class="row">
+        <select class="field num" id="selPreviewFormat">
+          <option value="jpeg">JPEG</option>
+          <option value="png">PNG</option>
+        </select>
+        <input type="number" min="64" class="field num" id="iptPreviewWidth" placeholder="宽度" />
+        <input type="number" min="64" class="field num" id="iptPreviewHeight" placeholder="高度" />
+        <input type="number" min="1" max="100" class="field num" id="iptPreviewQuality" placeholder="质量" />
+        <input type="number" min="1" max="10" class="field num" id="iptPreviewNth" placeholder="隔帧" />
+      </div>
+      <div class="row">
+        <button type="button" class="action" id="btnPreviewStart">开始预览</button>
+        <button type="button" class="action secondary" id="btnPreviewStop">停止预览</button>
+        <button type="button" class="action secondary" id="btnPreviewCapture">单帧截图</button>
+        <button type="button" class="action secondary" id="btnPreviewStatus">刷新预览状态</button>
+      </div>
+      <p class="hint" id="txtPreviewState">未加载预览状态</p>
+      <div class="preview-stage">
+        <img id="imgPreview" alt="游戏画面预览" style="display:none" />
+        <div class="preview-empty" id="previewEmpty">尚未收到画面帧</div>
       </div>
     </div>
 
@@ -309,6 +356,14 @@
       const txtFriendSummary = document.getElementById("txtFriendSummary");
       const txtAutoFarmState = document.getElementById("txtAutoFarmState");
       const logAutoFarm = document.getElementById("logAutoFarm");
+      const txtPreviewState = document.getElementById("txtPreviewState");
+      const imgPreview = document.getElementById("imgPreview");
+      const previewEmpty = document.getElementById("previewEmpty");
+      const selPreviewFormat = document.getElementById("selPreviewFormat");
+      const iptPreviewWidth = document.getElementById("iptPreviewWidth");
+      const iptPreviewHeight = document.getElementById("iptPreviewHeight");
+      const iptPreviewQuality = document.getElementById("iptPreviewQuality");
+      const iptPreviewNth = document.getElementById("iptPreviewNth");
       const autoOwnEnabled = document.getElementById("autoOwnEnabled");
       const autoFriendEnabled = document.getElementById("autoFriendEnabled");
       const autoRefreshFriendList = document.getElementById("autoRefreshFriendList");
@@ -325,6 +380,7 @@
       let farmConfig = {};
       let friendListCache = [];
       let autoFarmState = null;
+      let previewState = null;
       const pendingTags = new Map();
 
       function appendLine(msg, obj) {
@@ -449,6 +505,114 @@
         logAutoFarm.textContent = lines.join("\n\n");
       }
 
+      function gatherPreviewOptions() {
+        return {
+          format: String(selPreviewFormat.value || "jpeg"),
+          maxWidth: Number(iptPreviewWidth.value || 720),
+          maxHeight: Number(iptPreviewHeight.value || 1280),
+          quality: Number(iptPreviewQuality.value || 60),
+          everyNthFrame: Number(iptPreviewNth.value || 2),
+        };
+      }
+
+      function applyPreviewOptions(opts) {
+        opts = opts || {};
+        selPreviewFormat.value = opts.format === "png" ? "png" : "jpeg";
+        iptPreviewWidth.value = opts.maxWidth != null ? opts.maxWidth : 720;
+        iptPreviewHeight.value = opts.maxHeight != null ? opts.maxHeight : 1280;
+        iptPreviewQuality.value = opts.quality != null ? opts.quality : 60;
+        iptPreviewNth.value = opts.everyNthFrame != null ? opts.everyNthFrame : 2;
+      }
+
+      function setPreviewFrame(frame) {
+        if (!frame || !frame.data || !frame.mediaType) return;
+        imgPreview.src = "data:" + frame.mediaType + ";base64," + frame.data;
+        imgPreview.style.display = "block";
+        previewEmpty.style.display = "none";
+        var meta = frame.meta || {};
+        var parts = [];
+        if (previewState && previewState.running) parts.push("预览中");
+        else parts.push("静态帧");
+        if (frame.ts) parts.push("时间: " + frame.ts.replace("T", " ").replace("Z", ""));
+        if (meta.width != null && meta.height != null) parts.push("尺寸: " + meta.width + "x" + meta.height);
+        if (meta.bytesBase64 != null) parts.push("base64: " + meta.bytesBase64);
+        txtPreviewState.textContent = parts.join(" · ");
+      }
+
+      function renderPreviewState(state, syncForm) {
+        previewState = state || null;
+        if (syncForm && state && state.options) {
+          applyPreviewOptions(state.options);
+        }
+        if (!state) {
+          txtPreviewState.textContent = "未加载预览状态";
+          return;
+        }
+        var parts = [];
+        parts.push(state.running ? "预览运行中" : "预览已停止");
+        parts.push("订阅连接: " + (state.subscriberCount || 0));
+        if (state.lastFrameAt) parts.push("最后一帧: " + state.lastFrameAt.replace("T", " ").replace("Z", ""));
+        if (state.lastError) parts.push("错误: " + state.lastError);
+        txtPreviewState.textContent = parts.join(" · ");
+      }
+
+      function handleWsEvent(data) {
+        if (!data || typeof data !== "object") return false;
+        if (data.event === "previewFrame") {
+          setPreviewFrame(data);
+          return true;
+        }
+        if (data.event === "previewState") {
+          renderPreviewState(data.state, true);
+          return true;
+        }
+        return false;
+      }
+
+      function summarizeWsMessageForLog(data, tag) {
+        if (!data || typeof data !== "object") return data;
+        if (data.event === "previewFrame") return null;
+        if (data.event === "previewState") {
+          return {
+            event: data.event,
+            state: data.state ? {
+              running: data.state.running,
+              subscriberCount: data.state.subscriberCount,
+              lastFrameAt: data.state.lastFrameAt,
+              lastError: data.state.lastError,
+              options: data.state.options,
+            } : null,
+            extra: data.extra,
+          };
+        }
+        if (tag === "previewCapture" && data.ok && data.result) {
+          return {
+            id: data.id,
+            ok: true,
+            result: {
+              ts: data.result.ts,
+              mediaType: data.result.mediaType,
+              meta: data.result.meta,
+              options: data.result.options,
+            },
+          };
+        }
+        if ((tag === "previewStart" || tag === "previewStop" || tag === "previewStatus") && data.ok && data.result) {
+          return {
+            id: data.id,
+            ok: true,
+            result: {
+              running: data.result.running,
+              subscriberCount: data.result.subscriberCount,
+              lastFrameAt: data.result.lastFrameAt,
+              lastError: data.result.lastError,
+              options: data.result.options,
+            },
+          };
+        }
+        return data;
+      }
+
       function loadAutoFarmState(syncForm) {
         return fetch("/api/auto-farm")
           .then(function (r) { return r.json(); })
@@ -520,9 +684,11 @@
         ws.onmessage = function (ev) {
           try {
             const data = JSON.parse(ev.data);
-            appendLine("← 收到", data);
+            if (handleWsEvent(data)) return;
             var tag = data && data.id != null ? pendingTags.get(String(data.id)) : null;
             if (data && data.id != null) pendingTags.delete(String(data.id));
+            var summary = summarizeWsMessageForLog(data, tag);
+            if (summary !== null) appendLine("← 收到", summary);
             if (tag != null) {
               try {
                 handleWsResult(data, tag);
@@ -537,10 +703,15 @@
       function handleWsResult(msg, code) {
         if (!code) return;
         if (!msg.ok) {
+          var isPreviewOp = code === "previewStart" || code === "previewStop" || code === "previewCapture" || code === "previewStatus";
           if (code === "friends") {
             txtFriendSummary.textContent = "获取好友列表失败: " + (msg.error || "?");
+          } else if (isPreviewOp) {
+            txtPreviewState.textContent = "预览操作失败: " + (msg.error || "?");
           }
-          stGameCtl.textContent = "错误: " + (msg.error || "?");
+          if (!isPreviewOp) {
+            stGameCtl.textContent = "错误: " + (msg.error || "?");
+          }
           return;
         }
         var r = msg.result;
@@ -556,6 +727,10 @@
           stGameCtl.textContent = friend
             ? "已发起进入好友农场: " + (friend.displayName || friend.name || friend.gid)
             : "已发起进入好友农场";
+        } else if (code === "previewStart" || code === "previewStop" || code === "previewStatus") {
+          renderPreviewState(r, true);
+        } else if (code === "previewCapture") {
+          setPreviewFrame(r);
         }
       }
 
@@ -596,6 +771,7 @@
               if (c.prepareError) parts.push("错误: " + c.prepareError);
             }
             stCdp.textContent = parts.length ? parts.join(" · ") : "—";
+            renderPreviewState(j.preview || null, false);
           })
           .catch(function () {
             dotHttp.className = "dot bad";
@@ -650,6 +826,18 @@
       document.getElementById("btnRefreshGame").onclick = refreshGameCtl;
       document.getElementById("btnClear").onclick = function () {
         logEl.textContent = "";
+      };
+      document.getElementById("btnPreviewStart").onclick = function () {
+        send({ op: "previewStart", options: gatherPreviewOptions() }, "previewStart");
+      };
+      document.getElementById("btnPreviewStop").onclick = function () {
+        send({ op: "previewStop" }, "previewStop");
+      };
+      document.getElementById("btnPreviewCapture").onclick = function () {
+        send({ op: "previewCapture", options: gatherPreviewOptions() }, "previewCapture");
+      };
+      document.getElementById("btnPreviewStatus").onclick = function () {
+        send({ op: "previewStatus" }, "previewStatus");
       };
 
       document.querySelector(".tabs").addEventListener("click", function (e) {
@@ -792,6 +980,7 @@
         if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
       } catch (e) {}
 
+      applyPreviewOptions({});
       connect();
       fetchHealth();
       setInterval(fetchHealth, 5000);

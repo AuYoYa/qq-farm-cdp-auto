@@ -2901,24 +2901,78 @@
     return itemM.getAllSeeds(sortMode || 0);
   }
 
+  function initSeedModel(seed) {
+    if (!seed || typeof seed !== 'object') return seed;
+    if (typeof seed.initPlantData === 'function') {
+      try {
+        seed.initPlantData();
+      } catch (_) {}
+    }
+    return seed;
+  }
+
+  function summarizeSeedModel(seed) {
+    if (!seed) return null;
+    initSeedModel(seed);
+    const detail = seed.detail || seed.tempData || {};
+    const plantData = seed.plantData || {};
+    return {
+      itemId: seed.itemId || seed.id,
+      seedId: seed.id,
+      name: seed.name || '未知种子',
+      count: Math.max(0, Number(seed.count) || 0),
+      level: Number(detail.level || seed.level || 0),
+      rarity: Number(detail.rarity || 0),
+      layer: Number(detail.layer || seed.layerNum || 0),
+      isMultiLandPlant: !!seed.isMultiLandPlant,
+      plantSize: Math.max(1, Number(plantData.size) || 1),
+      plantId: plantData.id == null ? null : plantData.id
+    };
+  }
+
+  function getSeedModel(target, opts) {
+    opts = opts || {};
+
+    if (target && typeof target === 'object' && target.id != null) {
+      return initSeedModel(target);
+    }
+
+    const seeds = getAllSeeds(opts.sortMode || 0);
+    const targetId = toPositiveNumber(target);
+    const targetName = normalizeMatchText(target);
+
+    for (let i = 0; i < seeds.length; i++) {
+      const seed = initSeedModel(seeds[i]);
+      if (!seed) continue;
+
+      const count = Math.max(0, Number(seed.count) || 0);
+      if (!opts.includeZeroCount && count <= 0) continue;
+
+      if (targetId != null) {
+        if (toPositiveNumber(seed.id) === targetId) return seed;
+        if (toPositiveNumber(seed.itemId) === targetId) return seed;
+      }
+
+      if (targetName && normalizeMatchText(seed.name) === targetName) {
+        return seed;
+      }
+    }
+
+    return null;
+  }
+
   /**
    * 获取种子列表（供外部调用的精简版）
    */
   function getSeedList(opts) {
     opts = opts || {};
     const seeds = getAllSeeds(opts.sortMode || 3);
-    const list = seeds.map(function (s) {
-      const detail = s.detail || s.tempData || {};
-      return {
-        itemId: s.itemId || s.id,
-        seedId: s.id,
-        name: s.name || '未知种子',
-        count: s.count || 0,
-        level: detail.level || s.level || 0,
-        rarity: detail.rarity || 0,
-        layer: detail.layer || 0,
-      };
-    });
+    const list = seeds
+      .map(summarizeSeedModel)
+      .filter(Boolean)
+      .filter(function (s) {
+        return !opts.availableOnly || s.count > 0;
+      });
     return opts.silent ? list : out(list);
   }
 
@@ -2926,7 +2980,7 @@
    * 获取商店种子商品列表
    * 需要先请求商店数据（shop_id=2 是种子商店）
    */
-  function getShopSeedList(opts) {
+  function readShopSeedList(opts) {
     opts = opts || {};
     const oops = resolveOops();
     if (!oops) throw new Error('oops not found');
@@ -2939,6 +2993,13 @@
       return g && g.isSeed && g.unlocked && !g.isBuyAll;
     });
     const list = seedGoods.map(function (g) {
+      const tempModel = g.tempModel || null;
+      if (tempModel && typeof tempModel.initPlantData === 'function') {
+        try {
+          tempModel.initPlantData();
+        } catch (_) {}
+      }
+      const plantData = tempModel && tempModel.plantData ? tempModel.plantData : {};
       return {
         goodsId: g.id,
         itemId: g.itemId,
@@ -2948,12 +3009,33 @@
         unlockLevel: g.unlockLevel || 0,
         buyNum: g.buyNum || 0,
         limitCount: g.limitCount || 0,
-        level: g.tempModel ? (g.tempModel.level || 0) : 0,
+        level: tempModel ? (tempModel.level || 0) : 0,
+        rarity: tempModel && tempModel.detail ? (tempModel.detail.rarity || 0) : 0,
+        layer: tempModel ? (tempModel.layerNum || 0) : 0,
+        isMultiLandPlant: !!(tempModel && tempModel.isMultiLandPlant),
+        plantSize: Math.max(1, Number(plantData.size) || 1),
+        plantId: plantData.id == null ? null : plantData.id,
+        source: 'shop'
       };
     });
     if (opts.sortByLevel) {
       list.sort(function (a, b) { return b.level - a.level; });
     }
+    return opts.silent ? list : out(list);
+  }
+
+  async function getShopSeedList(opts) {
+    opts = opts || {};
+    const ensureData = opts.ensureData !== false;
+    if (ensureData) {
+      await requestShopData(opts.shopId || 2);
+    }
+    const list = readShopSeedList({
+      silent: true,
+      sortByLevel: opts.sortByLevel !== false
+    }).filter(function (item) {
+      return !opts.availableOnly || !item.isMultiLandPlant;
+    });
     return opts.silent ? list : out(list);
   }
 
@@ -2997,24 +3079,423 @@
     });
   }
 
+  function compareSeedPriority(a, b, order) {
+    const direction = order === 'asc' ? 1 : -1;
+    const levelDiff = ((Number(a && a.level) || 0) - (Number(b && b.level) || 0)) * direction;
+    if (levelDiff !== 0) return levelDiff;
+    const layerDiff = ((Number(a && a.layer) || 0) - (Number(b && b.layer) || 0)) * direction;
+    if (layerDiff !== 0) return layerDiff;
+    const rarityDiff = ((Number(a && a.rarity) || 0) - (Number(b && b.rarity) || 0)) * direction;
+    if (rarityDiff !== 0) return rarityDiff;
+    return (Number(a && (a.itemId || a.seedId)) || 0) - (Number(b && (b.itemId || b.seedId)) || 0);
+  }
+
+  function sortSeedsByPriority(list, order) {
+    const arr = Array.isArray(list) ? list.slice() : [];
+    arr.sort(function (a, b) {
+      return compareSeedPriority(a, b, order);
+    });
+    return arr;
+  }
+
+  function filterSingleLandSeeds(list) {
+    return (Array.isArray(list) ? list : []).filter(function (item) {
+      return item && !item.isMultiLandPlant;
+    });
+  }
+
+  function findSeedInList(list, target) {
+    const targetId = toPositiveNumber(target);
+    const targetText = normalizeMatchText(target);
+    const arr = Array.isArray(list) ? list : [];
+
+    for (let i = 0; i < arr.length; i++) {
+      const item = arr[i];
+      if (!item) continue;
+      if (targetId != null) {
+        if (toPositiveNumber(item.seedId) === targetId) return item;
+        if (toPositiveNumber(item.itemId) === targetId) return item;
+        if (toPositiveNumber(item.goodsId) === targetId) return item;
+      }
+      if (targetText && normalizeMatchText(item.name) === targetText) {
+        return item;
+      }
+    }
+
+    return null;
+  }
+
+  function normalizeAutoPlantMode(mode) {
+    const raw = String(mode || 'none').trim();
+    if (!raw) return 'none';
+    if (raw === 'backpack_first') return 'highest';
+    if (raw === 'buy_highest') return 'highest';
+    if (raw === 'buy_lowest') return 'lowest';
+    if (raw === 'specific') return 'selected';
+    return raw;
+  }
+
+  function normalizeAutoPlantSource(mode, source) {
+    const rawMode = String(mode || '').trim();
+    const rawSource = String(source || '').trim();
+    if (rawSource === 'backpack' || rawSource === 'shop' || rawSource === 'auto') {
+      return rawSource;
+    }
+    if (rawMode === 'backpack_first') return 'backpack';
+    if (rawMode === 'buy_highest' || rawMode === 'buy_lowest') return 'shop';
+    return 'auto';
+  }
+
+  async function getSeedCatalog(opts) {
+    opts = opts || {};
+    const availableOnly = opts.availableOnly !== false;
+    const includeBackpack = opts.includeBackpack !== false;
+    const includeShop = opts.includeShop !== false;
+    const catalog = {
+      fetchedAt: new Date().toISOString(),
+      availableOnly: !!availableOnly,
+      backpack: [],
+      shop: [],
+      errors: {}
+    };
+
+    if (includeBackpack) {
+      try {
+        catalog.backpack = filterSingleLandSeeds(getSeedList({
+          silent: true,
+          availableOnly: availableOnly,
+          sortMode: opts.sortMode || 3
+        }));
+      } catch (error) {
+        catalog.errors.backpack = error && error.message ? error.message : String(error);
+      }
+    }
+
+    if (includeShop) {
+      try {
+        catalog.shop = filterSingleLandSeeds(await getShopSeedList({
+          silent: true,
+          ensureData: opts.ensureShopData !== false,
+          shopId: opts.shopId || 2,
+          sortByLevel: true
+        }));
+      } catch (error) {
+        catalog.errors.shop = error && error.message ? error.message : String(error);
+      }
+    }
+
+    catalog.all = []
+      .concat((catalog.backpack || []).map(function (item) { return { ...item, source: 'backpack' }; }))
+      .concat((catalog.shop || []).map(function (item) { return { ...item, source: 'shop' }; }));
+    catalog.counts = {
+      backpack: catalog.backpack.length,
+      shop: catalog.shop.length,
+      all: catalog.all.length
+    };
+
+    return opts.silent ? catalog : out(catalog);
+  }
+
+  function normalizeLandIds(landIds) {
+    const list = Array.isArray(landIds) ? landIds : [landIds];
+    const seen = new Set();
+    const outArr = [];
+
+    for (let i = 0; i < list.length; i++) {
+      const landId = toPositiveNumber(list[i]);
+      if (landId == null || seen.has(landId)) continue;
+      seen.add(landId);
+      outArr.push(landId);
+    }
+
+    return outArr;
+  }
+
+  function getGridInfoByLandId(landId) {
+    const targetLandId = toPositiveNumber(landId);
+    if (targetLandId == null) return null;
+
+    const status = getFarmStatus({ includeGrids: true, includeLandIds: false, silent: true });
+    const grids = Array.isArray(status && status.grids) ? status.grids : [];
+
+    for (let i = 0; i < grids.length; i++) {
+      const grid = grids[i];
+      if (toPositiveNumber(grid && grid.landId) === targetLandId) return grid;
+    }
+
+    return null;
+  }
+
+  async function waitForLandPlantResult(landId, opts) {
+    opts = opts || {};
+    const timeoutMs = opts.timeoutMs == null ? 2500 : Math.max(0, Number(opts.timeoutMs) || 0);
+    const pollMs = opts.pollMs == null ? 150 : Math.max(30, Number(opts.pollMs) || 30);
+    const startedAt = Date.now();
+    let last = null;
+
+    while (true) {
+      last = getGridInfoByLandId(landId);
+      if (last && last.stageKind && last.stageKind !== 'empty') {
+        return {
+          ok: true,
+          reason: 'planted',
+          landId: toPositiveNumber(landId),
+          elapsedMs: Date.now() - startedAt,
+          after: last
+        };
+      }
+
+      if (Date.now() - startedAt >= timeoutMs) {
+        return {
+          ok: false,
+          reason: 'plant_timeout',
+          landId: toPositiveNumber(landId),
+          elapsedMs: Date.now() - startedAt,
+          after: last
+        };
+      }
+
+      await wait(pollMs);
+    }
+  }
+
+  function dispatchSingleLandPlant(seed, landId) {
+    const message = getOopsMessage();
+    const payload = {
+      land_id: landId,
+      seed_id: seed.id
+    };
+    message.dispatchEvent('REQUEST_CREATE_NEW_PLANT', payload);
+    return payload;
+  }
+
+  function dispatchMultiLandPlant(seed, landIds) {
+    const message = getOopsMessage();
+    const normalized = normalizeLandIds(landIds);
+    const payload = {
+      seed_id: seed.id,
+      land_id: normalized[0],
+      mutiPlantData: normalized
+    };
+    message.dispatchEvent('REQUEST_CREATE_NEW_MULTI_LAND_PLANT', payload);
+    return payload;
+  }
+
+  async function plantSingleLand(seedIdOrItemId, landId, opts) {
+    opts = opts || {};
+    const targetLandId = toPositiveNumber(landId);
+    if (targetLandId == null) throw new Error('landId required');
+
+    const seed = getSeedModel(seedIdOrItemId, {
+      sortMode: opts.sortMode || 3,
+      includeZeroCount: !!opts.includeZeroCount
+    });
+    if (!seed) {
+      return {
+        ok: false,
+        reason: 'seed_not_found',
+        requestedSeed: seedIdOrItemId,
+        landId: targetLandId
+      };
+    }
+
+    const seedInfo = summarizeSeedModel(seed);
+    const before = getGridInfoByLandId(targetLandId);
+    if (!before) {
+      return {
+        ok: false,
+        reason: 'land_not_found',
+        landId: targetLandId,
+        seed: seedInfo
+      };
+    }
+
+    if (before.stageKind !== 'empty') {
+      return {
+        ok: false,
+        reason: 'land_not_empty',
+        landId: targetLandId,
+        seed: seedInfo,
+        before
+      };
+    }
+
+    if (seedInfo.count <= 0 && !opts.includeZeroCount) {
+      return {
+        ok: false,
+        reason: 'seed_count_empty',
+        landId: targetLandId,
+        seed: seedInfo,
+        before
+      };
+    }
+
+    if (seedInfo.isMultiLandPlant) {
+      return {
+        ok: false,
+        reason: 'multi_land_seed_requires_multi_land_request',
+        landId: targetLandId,
+        seed: seedInfo,
+        before
+      };
+    }
+
+    const request = dispatchSingleLandPlant(seed, targetLandId);
+    if (opts.waitForResult === false) {
+      return {
+        ok: true,
+        action: 'plant_single',
+        landId: targetLandId,
+        seed: seedInfo,
+        before,
+        request,
+        dispatched: true
+      };
+    }
+
+    const verify = await waitForLandPlantResult(targetLandId, opts);
+    return {
+      ok: verify.ok,
+      action: 'plant_single',
+      landId: targetLandId,
+      seed: seedInfo,
+      before,
+      after: verify.after,
+      request,
+      verify
+    };
+  }
+
   /**
    * 在指定空地上种植种子
-   * seed_id: 种子的 item id
+   * 普通种子按单块地顺序种植；多地块作物才走 REQUEST_CREATE_NEW_MULTI_LAND_PLANT
    * landIds: 要种植的地块 id 数组
    */
-  function plantSeedsOnLands(seedId, landIds) {
-    if (!seedId) throw new Error('seedId required');
-    if (!Array.isArray(landIds) || landIds.length === 0) throw new Error('landIds required');
+  async function plantSeedsOnLands(seedIdOrItemId, landIds, opts) {
+    opts = opts || {};
+    const normalizedLandIds = normalizeLandIds(landIds);
+    if (normalizedLandIds.length === 0) throw new Error('landIds required');
 
-    const message = getOopsMessage();
-    // 使用多地块种植事件
-    const data = {
-      seed_id: seedId,
-      land_id: landIds[0],
-      mutiPlantData: landIds
+    const seed = getSeedModel(seedIdOrItemId, {
+      sortMode: opts.sortMode || 3,
+      includeZeroCount: !!opts.includeZeroCount
+    });
+    if (!seed) {
+      return {
+        ok: false,
+        reason: 'seed_not_found',
+        requestedSeed: seedIdOrItemId,
+        landIds: normalizedLandIds
+      };
+    }
+
+    const seedInfo = summarizeSeedModel(seed);
+    if (seedInfo.count <= 0 && !opts.includeZeroCount) {
+      return {
+        ok: false,
+        reason: 'seed_count_empty',
+        seed: seedInfo,
+        landIds: normalizedLandIds
+      };
+    }
+
+    if (seedInfo.isMultiLandPlant) {
+      const targetLandIds = normalizedLandIds.slice(0, seedInfo.plantSize);
+      const before = targetLandIds.map(getGridInfoByLandId);
+      if (targetLandIds.length < seedInfo.plantSize) {
+        return {
+          ok: false,
+          reason: 'multi_land_ids_insufficient',
+          seed: seedInfo,
+          landIds: normalizedLandIds,
+          requiredCount: seedInfo.plantSize
+        };
+      }
+      if (before.some(function (grid) { return !grid || grid.stageKind !== 'empty'; })) {
+        return {
+          ok: false,
+          reason: 'multi_land_target_not_empty',
+          seed: seedInfo,
+          landIds: targetLandIds,
+          before
+        };
+      }
+
+      const request = dispatchMultiLandPlant(seed, targetLandIds);
+      if (opts.waitForResult === false) {
+        return {
+          ok: true,
+          action: 'plant_multi_land',
+          seed: seedInfo,
+          landIds: targetLandIds,
+          before,
+          request,
+          dispatched: true
+        };
+      }
+
+      const verify = await waitForLandPlantResult(targetLandIds[0], opts);
+      return {
+        ok: verify.ok,
+        action: 'plant_multi_land',
+        seed: seedInfo,
+        landIds: targetLandIds,
+        before,
+        after: targetLandIds.map(getGridInfoByLandId),
+        request,
+        verify
+      };
+    }
+
+    const requestedLandIds = normalizedLandIds.slice();
+    const maxAttempts = opts.ignoreSeedCountLimit
+      ? requestedLandIds.length
+      : Math.min(requestedLandIds.length, Math.max(0, seedInfo.count || 0));
+    const attemptedLandIds = requestedLandIds.slice(0, maxAttempts);
+    const skippedLandIds = requestedLandIds.slice(attemptedLandIds.length);
+    const intervalMs = opts.intervalMs == null ? 300 : Math.max(0, Number(opts.intervalMs) || 0);
+    const results = [];
+
+    if (attemptedLandIds.length === 0) {
+      return {
+        ok: false,
+        action: 'plant_single_batch',
+        reason: 'seed_count_empty',
+        seed: seedInfo,
+        requestedLandIds,
+        attemptedLandIds,
+        skippedLandIds
+      };
+    }
+
+    for (let i = 0; i < attemptedLandIds.length; i++) {
+      const result = await plantSingleLand(seedInfo.seedId, attemptedLandIds[i], {
+        ...opts,
+        includeZeroCount: true
+      });
+      results.push(result);
+
+      if (!result.ok && opts.stopOnError) break;
+      if (i < attemptedLandIds.length - 1 && intervalMs > 0) {
+        await wait(intervalMs);
+      }
+    }
+
+    const plantedCount = results.filter(function (item) {
+      return !!(item && item.ok);
+    }).length;
+
+    return {
+      ok: plantedCount > 0,
+      action: 'plant_single_batch',
+      seed: seedInfo,
+      requestedLandIds,
+      attemptedLandIds,
+      skippedLandIds,
+      plantedCount,
+      failedCount: results.length - plantedCount,
+      results
     };
-    message.dispatchEvent('REQUEST_CREATE_NEW_MULTI_LAND_PLANT', data);
-    return { planted: true, seedId: seedId, landCount: landIds.length };
   }
 
   /**
@@ -3024,8 +3505,10 @@
    */
   async function autoPlant(opts) {
     opts = opts || {};
-    const mode = opts.mode || 'none';
-    if (mode === 'none') return { ok: true, mode: mode, action: 'skip' };
+    const requestedMode = opts.mode || 'none';
+    const mode = normalizeAutoPlantMode(requestedMode);
+    const source = normalizeAutoPlantSource(requestedMode, opts.source);
+    if (mode === 'none') return { ok: true, mode: mode, source: source, action: 'skip' };
 
     // 获取空地
     let emptyLandIds = opts.emptyLandIds;
@@ -3050,54 +3533,164 @@
     let seedId = null;
     let seedName = null;
     let seedSource = null;
+    let selectedSeed = null;
+    const requestedSelected = opts.selectedSeedId != null
+      ? opts.selectedSeedId
+      : opts.selectedItemId != null
+        ? opts.selectedItemId
+        : opts.seedId != null
+          ? opts.seedId
+          : opts.itemId != null
+            ? opts.itemId
+            : opts.seedName;
 
-    if (mode === 'backpack_first') {
-      // 优先使用背包中已有的种子（按等级降序选第一个有库存的）
-      const seeds = getAllSeeds(3);
-      const available = seeds.filter(function (s) { return s.count > 0; });
-      if (available.length > 0) {
-        seedId = available[0].id;
-        seedName = available[0].name || 'unknown';
-        seedSource = 'backpack';
-      } else {
-        return { ok: false, mode: mode, reason: 'no_seeds_in_backpack' };
+    if (mode === 'selected' || source === 'backpack' || source === 'auto') {
+      const backpackSeeds = filterSingleLandSeeds(getSeedList({
+        silent: true,
+        availableOnly: true,
+        sortMode: 3
+      }));
+
+      if (mode === 'selected' && requestedSelected != null) {
+        selectedSeed = findSeedInList(backpackSeeds, requestedSelected);
+        if (selectedSeed) {
+          seedId = selectedSeed.seedId;
+          seedName = selectedSeed.name;
+          seedSource = 'backpack';
+        } else if (source === 'backpack') {
+          return {
+            ok: false,
+            mode: mode,
+            source: source,
+            reason: 'selected_seed_not_found_in_backpack',
+            requestedSeed: requestedSelected
+          };
+        }
+      } else if (source === 'backpack' || source === 'auto') {
+        const sorted = sortSeedsByPriority(backpackSeeds, mode === 'lowest' ? 'asc' : 'desc');
+        if (sorted.length > 0) {
+          seedId = sorted[0].seedId;
+          seedName = sorted[0].name || 'unknown';
+          seedSource = 'backpack';
+        }
       }
-    } else if (mode === 'buy_highest' || mode === 'buy_lowest') {
-      // 从商店购买种子
-      const shopReady = await requestShopData(2);
+
+      if (seedSource === 'backpack' && !seedId && backpackSeeds.length > 0) {
+        return {
+          ok: false,
+          mode: mode,
+          source: source,
+          reason: 'seed_resolution_failed_in_backpack'
+        };
+      }
+    }
+
+    if (!seedId && (mode === 'selected' || source === 'shop' || source === 'auto')) {
       let shopSeeds;
       try {
-        shopSeeds = getShopSeedList({ silent: true, sortByLevel: true });
+        shopSeeds = filterSingleLandSeeds(await getShopSeedList({
+          silent: true,
+          ensureData: true,
+          shopId: 2,
+          sortByLevel: true
+        }));
       } catch (e) {
-        return { ok: false, mode: mode, reason: 'shop_data_error', error: e.message };
+        return {
+          ok: false,
+          mode: mode,
+          source: source,
+          reason: 'shop_data_error',
+          error: e && e.message ? e.message : String(e)
+        };
       }
-      if (!shopSeeds || shopSeeds.length === 0) {
-        return { ok: false, mode: mode, reason: 'no_seeds_in_shop' };
+
+      let target = null;
+      if (mode === 'selected' && requestedSelected != null) {
+        target = findSeedInList(shopSeeds, requestedSelected);
+        if (!target && source === 'shop') {
+          return {
+            ok: false,
+            mode: mode,
+            source: source,
+            reason: 'selected_seed_not_found_in_shop',
+            requestedSeed: requestedSelected
+          };
+        }
+      } else {
+        const sorted = sortSeedsByPriority(shopSeeds, mode === 'lowest' ? 'asc' : 'desc');
+        target = sorted.length > 0 ? sorted[0] : null;
       }
-      const target = mode === 'buy_highest' ? shopSeeds[0] : shopSeeds[shopSeeds.length - 1];
-      // 购买足够数量的种子
-      const buyCount = emptyLandIds.length;
-      const buyResult = await buyShopGoods(target.goodsId, buyCount, target.price);
-      if (!buyResult.ok) {
-        return { ok: false, mode: mode, reason: 'buy_failed', buyResult: buyResult, targetSeed: target };
+
+      if (target) {
+        const buyCount = emptyLandIds.length;
+        const buyResult = await buyShopGoods(target.goodsId, buyCount, target.price);
+        if (!buyResult.ok) {
+          return {
+            ok: false,
+            mode: mode,
+            source: source,
+            reason: 'buy_failed',
+            buyResult: buyResult,
+            targetSeed: target
+          };
+        }
+        seedId = target.itemId;
+        seedName = target.name;
+        seedSource = 'shop';
+      } else if (source === 'shop') {
+        return {
+          ok: false,
+          mode: mode,
+          source: source,
+          reason: 'no_seeds_in_shop'
+        };
       }
-      seedId = target.itemId;
-      seedName = target.name;
-      seedSource = 'shop_' + mode;
-    } else {
-      return { ok: false, mode: mode, reason: 'unknown_mode' };
+      const buyWaitMs = opts.buyWaitMs == null ? 200 : Math.max(0, Number(opts.buyWaitMs) || 0);
+      if (buyWaitMs > 0) {
+        await wait(buyWaitMs);
+      }
+    }
+
+    if (!seedId && source === 'backpack') {
+      return { ok: false, mode: mode, source: source, reason: 'no_seeds_in_backpack' };
+    }
+    if (!seedId && source === 'shop') {
+      return { ok: false, mode: mode, source: source, reason: 'no_seeds_in_shop' };
+    }
+    if (!seedId && source === 'auto') {
+      if (mode === 'selected') {
+        return {
+          ok: false,
+          mode: mode,
+          source: source,
+          reason: 'selected_seed_not_found',
+          requestedSeed: requestedSelected
+        };
+      }
+      return {
+        ok: false,
+        mode: mode,
+        source: source,
+        reason: 'no_seed_available'
+      };
     }
 
     if (!seedId) {
-      return { ok: false, mode: mode, reason: 'no_seed_resolved' };
+      return { ok: false, mode: mode, source: source, reason: 'no_seed_resolved' };
     }
 
-    // 种植
-    const plantResult = plantSeedsOnLands(seedId, emptyLandIds);
+    const plantResult = await plantSeedsOnLands(seedId, emptyLandIds, {
+      waitForResult: opts.waitForResult !== false,
+      timeoutMs: opts.timeoutMs,
+      pollMs: opts.pollMs,
+      intervalMs: opts.intervalMs,
+      stopOnError: !!opts.stopOnError
+    });
     return {
-      ok: true,
+      ok: !!(plantResult && plantResult.ok),
       mode: mode,
-      action: 'planted',
+      source: source,
+      action: plantResult && plantResult.action ? plantResult.action : 'planted',
       seedId: seedId,
       seedName: seedName,
       seedSource: seedSource,
@@ -3856,6 +4449,10 @@
     triggerOneClickOperation,
     triggerOneClickHarvest,
     getSeedList,
+    getShopSeedList,
+    getSeedCatalog,
+    plantSingleLand,
+    plantSeedsOnLands,
     autoPlant,
     openLandInteraction,
     openLandAndDiffButtons,
@@ -3896,6 +4493,11 @@
       'gameCtl.inspectOneClickToolNodes()',
       'gameCtl.getOneClickManagerState()',
       'gameCtl.triggerOneClickHarvest()',
+      'gameCtl.getSeedList({ availableOnly: true })',
+      'gameCtl.getShopSeedList({ ensureData: true })',
+      'gameCtl.getSeedCatalog({ availableOnly: true })',
+      'gameCtl.plantSingleLand(seedId, landId, opts)',
+      'gameCtl.plantSeedsOnLands(seedId, landIds, opts)',
       'gameCtl.openLandInteraction(path)',
       'gameCtl.openLandAndDiffButtons(path, opts)',
       'gameCtl.snapshotNode(path, opts)',

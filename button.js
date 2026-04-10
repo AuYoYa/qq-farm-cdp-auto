@@ -6,6 +6,7 @@
   const doc = (G.GameGlobal && G.GameGlobal.document) || G.document;
   const canvas = (cc.game && cc.game.canvas) || G.canvas || (G.GameGlobal && G.GameGlobal.canvas);
   let cachedSelfGid = null;
+  let cachedGlobalDataRuntime = null;
   let cachedOops = null;
   let cachedItemManager = null;
   let cachedMessageBus = null;
@@ -1396,6 +1397,171 @@
     }
 
     return null;
+  }
+
+  function isGlobalDataLike(value) {
+    return !!(
+      value &&
+      typeof value === 'object' &&
+      value.selfModel &&
+      typeof value.selfModel === 'object'
+    );
+  }
+
+  function getGlobalDataRuntime() {
+    if (
+      cachedGlobalDataRuntime &&
+      isGlobalDataLike(cachedGlobalDataRuntime.globalData)
+    ) {
+      return cachedGlobalDataRuntime;
+    }
+
+    const candidates = [
+      { source: 'globalThis.GlobalData', value: G.GlobalData },
+      { source: 'GameGlobal.GlobalData', value: G.GameGlobal && G.GameGlobal.GlobalData }
+    ];
+
+    const systemResolved = getSystemModule([
+      'chunks:///_virtual/GlobalData.ts',
+      './GlobalData.ts'
+    ]);
+    if (systemResolved) {
+      candidates.push({
+        source: 'System:' + systemResolved.moduleId,
+        value: systemResolved.namespace
+      });
+    }
+
+    for (let i = 0; i < candidates.length; i++) {
+      const item = candidates[i];
+      const ns = unwrapModuleNamespace(item.value);
+      const globalData = ns && ns.GlobalData ? ns.GlobalData : ns;
+      if (!isGlobalDataLike(globalData)) continue;
+      cachedGlobalDataRuntime = {
+        source: item.source,
+        globalData
+      };
+      rememberSelfGid(globalData.selfModel && globalData.selfModel.gid);
+      return cachedGlobalDataRuntime;
+    }
+
+    return null;
+  }
+
+  function readSelfExpValue() {
+    const runtime = getGlobalDataRuntime();
+    if (!runtime || !runtime.globalData || !runtime.globalData.selfModel) return null;
+    const exp = Number(runtime.globalData.selfModel.exp);
+    return Number.isFinite(exp) ? exp : null;
+  }
+
+  function getSelfExp(opts) {
+    opts = opts || {};
+    const exp = readSelfExpValue();
+    return opts.silent ? exp : out(exp);
+  }
+
+  function addMessageListener(message, eventName, handler) {
+    if (!message || !eventName || typeof handler !== 'function') return false;
+    if (typeof message.on === 'function') {
+      message.on(eventName, handler);
+      return true;
+    }
+    if (typeof message.addEventListener === 'function') {
+      message.addEventListener(eventName, handler);
+      return true;
+    }
+    return false;
+  }
+
+  function removeMessageListener(message, eventName, handler) {
+    if (!message || !eventName || typeof handler !== 'function') return false;
+    if (typeof message.off === 'function') {
+      message.off(eventName, handler);
+      return true;
+    }
+    if (typeof message.removeEventListener === 'function') {
+      message.removeEventListener(eventName, handler);
+      return true;
+    }
+    return false;
+  }
+
+  async function waitForSelfExpChange(beforeExp, opts) {
+    opts = opts || {};
+    const timeoutMs = opts.timeoutMs == null ? 1200 : Math.max(0, Number(opts.timeoutMs) || 0);
+    const pollMs = opts.pollMs == null ? 60 : Math.max(10, Number(opts.pollMs) || 10);
+    const settleMs = opts.settleMs == null ? 80 : Math.max(0, Number(opts.settleMs) || 0);
+    const expBefore = Number.isFinite(Number(beforeExp)) ? Number(beforeExp) : readSelfExpValue();
+    const startedAt = Date.now();
+    let expAfter = readSelfExpValue();
+    let expEventCount = 0;
+    let basicInfoEventCount = 0;
+    let pendingWake = false;
+    let message = null;
+
+    const onExpChange = function () {
+      expEventCount += 1;
+      pendingWake = true;
+    };
+    const onBasicInfoChanged = function () {
+      basicInfoEventCount += 1;
+      pendingWake = true;
+    };
+
+    try {
+      message = getOopsMessage();
+    } catch (_) {
+      message = null;
+    }
+
+    if (message) {
+      addMessageListener(message, 'ExpChange', onExpChange);
+      addMessageListener(message, 'BasicInfoChanged', onBasicInfoChanged);
+    }
+
+    try {
+      while (true) {
+        expAfter = readSelfExpValue();
+        const expChanged = expBefore != null && expAfter != null && expAfter !== expBefore;
+        if (expChanged) {
+          if (settleMs > 0) {
+            await wait(settleMs);
+            const settledExp = readSelfExpValue();
+            if (settledExp != null) expAfter = settledExp;
+          }
+          break;
+        }
+
+        const elapsedMs = Date.now() - startedAt;
+        if (elapsedMs >= timeoutMs) break;
+
+        const remainingMs = Math.max(0, timeoutMs - elapsedMs);
+        const delayMs = pendingWake ? Math.min(20, remainingMs) : Math.min(pollMs, remainingMs);
+        pendingWake = false;
+        await wait(delayMs);
+      }
+    } finally {
+      if (message) {
+        removeMessageListener(message, 'ExpChange', onExpChange);
+        removeMessageListener(message, 'BasicInfoChanged', onBasicInfoChanged);
+      }
+    }
+
+    expAfter = readSelfExpValue();
+    const expDelta = expBefore != null && expAfter != null ? expAfter - expBefore : null;
+    const expChanged = expDelta != null ? expDelta !== 0 : false;
+    return {
+      ok: true,
+      expBefore,
+      expAfter,
+      expDelta,
+      expChanged,
+      elapsedMs: Date.now() - startedAt,
+      expEventCount,
+      basicInfoEventCount,
+      reason: expChanged ? 'exp_changed' : 'exp_not_changed'
+    };
   }
 
   function classifyOwnershipByUiFallback(evidence) {
@@ -3531,14 +3697,45 @@
     return null;
   }
 
+  function getShopEnterCompCtor() {
+    const resolved = getSystemExportRuntime(
+      ['chunks:///_virtual/ShopEnterSystem.ts', './ShopEnterSystem.ts'],
+      'ShopEnterComp'
+    );
+    return resolved && typeof resolved.value === 'function' ? resolved.value : null;
+  }
+
+  function hasShopEnterComp(entity) {
+    const ShopEnterComp = getShopEnterCompCtor();
+    if (!entity || !ShopEnterComp) return false;
+
+    try {
+      if (typeof entity.has === 'function') {
+        return !!entity.has(ShopEnterComp);
+      }
+    } catch (_) {}
+
+    try {
+      if (typeof entity.get === 'function') {
+        return !!entity.get(ShopEnterComp);
+      }
+    } catch (_) {}
+
+    const compName = ShopEnterComp.compName || 'ShopEnterComp';
+    return !!entity[compName];
+  }
+
   function ensureShopEntityReady() {
     const smc = getSingletonModuleComp();
     if (smc.shop && smc.shop.ShopModelComp) {
+      if (!hasShopEnterComp(smc.shop) && typeof smc.shop.enter === 'function') {
+        smc.shop.enter();
+      }
       return {
         smc: smc,
         shop: smc.shop,
         model: smc.shop.ShopModelComp,
-        strategy: 'existing'
+        strategy: hasShopEnterComp(smc.shop) ? 'existing' : 'existing_reenter'
       };
     }
 
@@ -4050,6 +4247,405 @@
     };
     message.dispatchEvent('REQUEST_HARVEST_PLANT', payload);
     return payload;
+  }
+
+  function getSingleLandCareSpec(kind) {
+    const actionType = normalizeGridActionType(kind);
+    const specs = {
+      water: {
+        kind: 'water',
+        action: 'water_single',
+        batchAction: 'water_batch',
+        requestEvent: 'REQUEST_WATER_PLANT',
+        batchRequestEvent: 'REQUEST_WATER_PLANTS',
+        completedEvent: 'WATER_PLANT_COMPLETED',
+        canKey: 'canWater',
+        notActionableReason: 'land_not_waterable'
+      },
+      killBug: {
+        kind: 'killBug',
+        action: 'kill_bug_single',
+        batchAction: 'kill_bug_batch',
+        requestEvent: 'REQUEST_KILL_BUG',
+        batchRequestEvent: 'REQUEST_KILL_BUGS',
+        completedEvent: 'KILL_BUG_COMPLETED',
+        canKey: 'canKillBug',
+        notActionableReason: 'land_not_kill_buggable'
+      },
+      eraseGrass: {
+        kind: 'eraseGrass',
+        action: 'erase_grass_single',
+        batchAction: 'erase_grass_batch',
+        requestEvent: 'REQUEST_ERASE_GRASS',
+        batchRequestEvent: 'REQUEST_ERASE_GRASSES',
+        completedEvent: 'ERASE_GRASS_COMPLETED',
+        canKey: 'canEraseGrass',
+        notActionableReason: 'land_not_erase_grassable'
+      }
+    };
+    if (!specs[actionType]) throw new Error('Unsupported single land care action: ' + kind);
+    return specs[actionType];
+  }
+
+  async function dispatchSingleLandCareAction(kind, landId, opts) {
+    opts = opts || {};
+    const spec = getSingleLandCareSpec(kind);
+    const message = getOopsMessage();
+    const payload = {
+      land_id: landId
+    };
+
+    if (opts.waitForResult === false) {
+      message.dispatchEvent(spec.requestEvent, payload);
+      return {
+        ok: true,
+        reason: 'dispatched',
+        request: payload,
+        dispatched: true
+      };
+    }
+
+    const timeoutMs = opts.actionTimeoutMs == null
+      ? (opts.timeoutMs == null ? 2500 : Math.max(0, Number(opts.timeoutMs) || 0))
+      : Math.max(0, Number(opts.actionTimeoutMs) || 0);
+    const startedAt = Date.now();
+
+    return await new Promise(function (resolve) {
+      let settled = false;
+      let timer = null;
+
+      function finish(result) {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        resolve({
+          request: payload,
+          dispatched: true,
+          elapsedMs: Date.now() - startedAt,
+          ...result
+        });
+      }
+
+      payload.onComplete = function (ok, errorCode) {
+        finish({
+          ok: !!ok,
+          reason: ok ? 'completed' : 'request_failed',
+          errorCode: Number.isFinite(Number(errorCode)) ? Number(errorCode) : null
+        });
+      };
+
+      try {
+        message.dispatchEvent(spec.requestEvent, payload);
+      } catch (error) {
+        finish({
+          ok: false,
+          reason: 'dispatch_error',
+          error: error && error.message ? error.message : String(error)
+        });
+        return;
+      }
+
+      timer = setTimeout(function () {
+        finish({
+          ok: false,
+          reason: 'request_timeout',
+          errorCode: null
+        });
+      }, timeoutMs);
+    });
+  }
+
+  async function dispatchBatchLandCareAction(kind, landIds, opts) {
+    opts = opts || {};
+    const spec = getSingleLandCareSpec(kind);
+    const message = getOopsMessage();
+    const normalizedLandIds = normalizeLandIds(landIds);
+    if (normalizedLandIds.length === 0) {
+      return {
+        ok: false,
+        reason: 'land_ids_empty',
+        request: null,
+        dispatched: false,
+        landIds: []
+      };
+    }
+
+    const payload = {
+      land_ids: normalizedLandIds.slice()
+    };
+    const eventName = normalizedLandIds.length > 1 && spec.batchRequestEvent
+      ? spec.batchRequestEvent
+      : spec.requestEvent;
+
+    if (opts.waitForResult === false) {
+      message.dispatchEvent(eventName, payload);
+      return {
+        ok: true,
+        reason: 'dispatched',
+        request: payload,
+        dispatched: true,
+        landIds: normalizedLandIds,
+        eventName
+      };
+    }
+
+    const timeoutMs = opts.actionTimeoutMs == null
+      ? (opts.timeoutMs == null ? 2500 : Math.max(0, Number(opts.timeoutMs) || 0))
+      : Math.max(0, Number(opts.actionTimeoutMs) || 0);
+    const startedAt = Date.now();
+
+    return await new Promise(function (resolve) {
+      let settled = false;
+      let timer = null;
+
+      function finish(result) {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        resolve({
+          request: payload,
+          dispatched: true,
+          landIds: normalizedLandIds,
+          eventName,
+          elapsedMs: Date.now() - startedAt,
+          ...result
+        });
+      }
+
+      payload.onComplete = function (ok, errorCode) {
+        finish({
+          ok: !!ok,
+          reason: ok ? 'completed' : 'request_failed',
+          errorCode: Number.isFinite(Number(errorCode)) ? Number(errorCode) : null
+        });
+      };
+
+      try {
+        message.dispatchEvent(eventName, payload);
+      } catch (error) {
+        finish({
+          ok: false,
+          reason: 'dispatch_error',
+          error: error && error.message ? error.message : String(error)
+        });
+        return;
+      }
+
+      timer = setTimeout(function () {
+        finish({
+          ok: false,
+          reason: 'request_timeout',
+          errorCode: null
+        });
+      }, timeoutMs);
+    });
+  }
+
+  async function performSingleLandCareAction(kind, landId, opts) {
+    opts = opts || {};
+    const spec = getSingleLandCareSpec(kind);
+    const targetLandId = toPositiveNumber(landId);
+    if (targetLandId == null) throw new Error('landId required');
+
+    const before = getGridInfoByLandId(targetLandId);
+    if (!before) {
+      return {
+        ok: false,
+        reason: 'land_not_found',
+        action: spec.action,
+        kind: spec.kind,
+        landId: targetLandId
+      };
+    }
+
+    if (!before[spec.canKey]) {
+      return {
+        ok: false,
+        reason: spec.notActionableReason,
+        action: spec.action,
+        kind: spec.kind,
+        landId: targetLandId,
+        before
+      };
+    }
+
+    const expBefore = readSelfExpValue();
+    const verify = await dispatchSingleLandCareAction(spec.kind, targetLandId, opts);
+    if (opts.waitForResult === false) {
+      return {
+        ok: verify.ok,
+        action: spec.action,
+        kind: spec.kind,
+        landId: targetLandId,
+        before,
+        request: verify.request,
+        verify,
+        expBefore,
+        dispatched: true
+      };
+    }
+
+    if (verify.ok && opts.afterWaitMs != null && Number(opts.afterWaitMs) > 0) {
+      await wait(Math.max(0, Number(opts.afterWaitMs) || 0));
+    }
+
+    const after = getGridInfoByLandId(targetLandId);
+    const expWait = verify.ok && opts.detectExp !== false
+      ? await waitForSelfExpChange(expBefore, {
+          timeoutMs: opts.expTimeoutMs,
+          pollMs: opts.expPollMs,
+          settleMs: opts.expSettleMs
+        })
+      : (() => {
+          const expAfterFallback = readSelfExpValue();
+          const expDeltaFallback = expBefore != null && expAfterFallback != null
+            ? expAfterFallback - expBefore
+            : null;
+          return {
+          ok: true,
+          expBefore,
+          expAfter: expAfterFallback,
+          expDelta: expDeltaFallback,
+          expChanged: expDeltaFallback != null ? expDeltaFallback !== 0 : false,
+          elapsedMs: 0,
+          expEventCount: 0,
+          basicInfoEventCount: 0,
+          reason: 'exp_check_skipped'
+        };
+        })();
+    const expAfter = expWait.expAfter;
+    const expDelta = expWait.expDelta;
+    const expReadable = expBefore != null && expAfter != null;
+    const noExpGain = !!(verify.ok && expReadable && expDelta === 0);
+
+    return {
+      ok: verify.ok,
+      reason: verify.reason,
+      action: spec.action,
+      kind: spec.kind,
+      landId: targetLandId,
+      before,
+      after,
+      request: verify.request,
+      verify,
+      expBefore,
+      expAfter,
+      expDelta,
+      expChanged: !!expWait.expChanged,
+      expReadable,
+      noExpGain,
+      expLimitReachedGuess: noExpGain,
+      expWait
+    };
+  }
+
+  async function performBatchLandCareAction(kind, landIds, opts) {
+    opts = opts || {};
+    const spec = getSingleLandCareSpec(kind);
+    const normalizedLandIds = normalizeLandIds(landIds);
+    if (normalizedLandIds.length === 0) throw new Error('landIds required');
+
+    const expBefore = readSelfExpValue();
+    const verify = await dispatchBatchLandCareAction(spec.kind, normalizedLandIds, opts);
+    if (opts.waitForResult === false) {
+      return {
+        ok: verify.ok,
+        action: spec.batchAction,
+        kind: spec.kind,
+        landIds: normalizedLandIds,
+        request: verify.request,
+        verify,
+        expBefore,
+        dispatched: !!verify.dispatched
+      };
+    }
+
+    if (verify.ok && opts.afterWaitMs != null && Number(opts.afterWaitMs) > 0) {
+      await wait(Math.max(0, Number(opts.afterWaitMs) || 0));
+    }
+
+    let afterStatus = null;
+    try {
+      afterStatus = getFarmStatus({
+        includeGrids: false,
+        includeLandIds: true,
+        silent: true
+      });
+    } catch (_) {
+      afterStatus = null;
+    }
+
+    const expWait = verify.ok && opts.detectExp !== false
+      ? await waitForSelfExpChange(expBefore, {
+          timeoutMs: opts.expTimeoutMs,
+          pollMs: opts.expPollMs,
+          settleMs: opts.expSettleMs
+        })
+      : (() => {
+          const expAfterFallback = readSelfExpValue();
+          const expDeltaFallback = expBefore != null && expAfterFallback != null
+            ? expAfterFallback - expBefore
+            : null;
+          return {
+            ok: true,
+            expBefore,
+            expAfter: expAfterFallback,
+            expDelta: expDeltaFallback,
+            expChanged: expDeltaFallback != null ? expDeltaFallback !== 0 : false,
+            elapsedMs: 0,
+            expEventCount: 0,
+            basicInfoEventCount: 0,
+            reason: 'exp_check_skipped'
+          };
+        })();
+
+    const expAfter = expWait.expAfter;
+    const expDelta = expWait.expDelta;
+    const expReadable = expBefore != null && expAfter != null;
+    const noExpGain = !!(verify.ok && expReadable && expDelta === 0);
+
+    return {
+      ok: verify.ok,
+      reason: verify.reason,
+      action: spec.batchAction,
+      kind: spec.kind,
+      landIds: normalizedLandIds,
+      request: verify.request,
+      verify,
+      afterStatus,
+      expBefore,
+      expAfter,
+      expDelta,
+      expChanged: !!expWait.expChanged,
+      expReadable,
+      noExpGain,
+      expLimitReachedGuess: noExpGain,
+      expWait
+    };
+  }
+
+  async function waterSingleLand(landId, opts) {
+    return await performSingleLandCareAction('water', landId, opts);
+  }
+
+  async function killBugSingleLand(landId, opts) {
+    return await performSingleLandCareAction('killBug', landId, opts);
+  }
+
+  async function eraseGrassSingleLand(landId, opts) {
+    return await performSingleLandCareAction('eraseGrass', landId, opts);
+  }
+
+  async function waterLands(landIds, opts) {
+    return await performBatchLandCareAction('water', landIds, opts);
+  }
+
+  async function killBugLands(landIds, opts) {
+    return await performBatchLandCareAction('killBug', landIds, opts);
+  }
+
+  async function eraseGrassLands(landIds, opts) {
+    return await performBatchLandCareAction('eraseGrass', landIds, opts);
   }
 
   async function plantSingleLand(seedIdOrItemId, landId, opts) {
@@ -5282,6 +5878,8 @@
     getFarmOwnership,
     getFriendList,
     getSelfGid,
+    getSelfExp,
+    waitForSelfExpChange,
     enterFarmByGid,
     enterOwnFarm,
     enterFriendFarm,
@@ -5323,6 +5921,12 @@
     getSeedCatalog,
     getPlantCompByLandId,
     harvestSingleLand,
+    waterSingleLand,
+    killBugSingleLand,
+    eraseGrassSingleLand,
+    waterLands,
+    killBugLands,
+    eraseGrassLands,
     clickMatureEffect,
     plantSingleLand,
     plantSeedsOnLands,
@@ -5353,6 +5957,8 @@
       'gameCtl.getFriendList(opts)',
       'gameCtl.enterOwnFarm(opts)',
       'gameCtl.enterFriendFarm(target, opts)',
+      'gameCtl.getSelfExp()',
+      'gameCtl.waitForSelfExpChange(beforeExp, opts)',
       'gameCtl.getFarmWorkSummary()',
       'gameCtl.getFarmStatus()',
       'gameCtl.getGridState(path)',
@@ -5372,6 +5978,12 @@
       'gameCtl.getSeedCatalog({ availableOnly: true })',
       'gameCtl.getPlantCompByLandId(landId)',
       'gameCtl.harvestSingleLand(landId, opts)',
+      'gameCtl.waterSingleLand(landId, opts)',
+      'gameCtl.killBugSingleLand(landId, opts)',
+      'gameCtl.eraseGrassSingleLand(landId, opts)',
+      'gameCtl.waterLands(landIds, opts)',
+      'gameCtl.killBugLands(landIds, opts)',
+      'gameCtl.eraseGrassLands(landIds, opts)',
       'gameCtl.clickMatureEffect(landId, opts)',
       'gameCtl.plantSingleLand(seedId, landId, opts)',
       'gameCtl.plantSeedsOnLands(seedId, landIds, opts)',

@@ -66,6 +66,7 @@ import {
     autoEnterWaitMs,
     autoActionWaitMs,
     autoStopOnError,
+    autoStopCareWhenNoExp,
     autoPlantMode,
     autoPlantSource,
     autoPlantSelectedWrap,
@@ -533,6 +534,7 @@ import {
     autoEnterWaitMs.value = cfg.autoFarmEnterWaitMs != null ? cfg.autoFarmEnterWaitMs : 1800;
     autoActionWaitMs.value = cfg.autoFarmActionWaitMs != null ? cfg.autoFarmActionWaitMs : 1200;
     autoStopOnError.checked = !!cfg.autoFarmStopOnError;
+    autoStopCareWhenNoExp.checked = !!cfg.autoFarmStopCareWhenNoExp;
     autoPlantMode.value = normalizeAutoPlantModeValue(cfg.autoFarmPlantMode);
     autoPlantSource.value = normalizeAutoPlantSourceValue(cfg.autoFarmPlantSource, cfg.autoFarmPlantMode);
     pendingAutoPlantSelectedSeedKey = normalizeText(
@@ -569,6 +571,7 @@ import {
       autoFarmEnterWaitMs: Number(autoEnterWaitMs.value || 1800),
       autoFarmActionWaitMs: Number(autoActionWaitMs.value || 1200),
       autoFarmStopOnError: !!autoStopOnError.checked,
+      autoFarmStopCareWhenNoExp: !!autoStopCareWhenNoExp.checked,
       autoFarmPlantMode: normalizeAutoPlantModeValue(autoPlantMode.value || "none"),
       autoFarmPlantSource: normalizeAutoPlantSourceValue(autoPlantSource.value || "auto", autoPlantMode.value),
       autoFarmPlantSelectedSeedKey: selectedSeedKey,
@@ -779,6 +782,13 @@ import {
     return key ? String(key) : "未知动作";
   }
 
+  function formatCareActionLabel(key) {
+    if (key === "water") return "浇水";
+    if (key === "eraseGrass") return "除草";
+    if (key === "killBug") return "杀虫";
+    return key ? String(key) : "打理";
+  }
+
   function formatAutoPlantReason(reason) {
     const map = {
       not_own_farm: "当前不在自己农场",
@@ -969,17 +979,37 @@ import {
       if (own && own.tasks) {
         var actions = Array.isArray(own.tasks.actions) ? own.tasks.actions : [];
         if (actions.length === 0) {
-          lines.push(ts + "自己农场：无待处理项");
+          if (state.careExpLimitState && own.tasks.careMode === "batch_land_exp_check") {
+            lines.push(ts + "自己农场：共享经验已满，今日打理跳过");
+          } else {
+            lines.push(ts + "自己农场：无待处理项");
+          }
         }
         actions.forEach(function (a) {
           if (!a) return;
-          var label = formatActionLabel(a.key);
+          var label = a.mode === "batch_land_exp_check"
+            ? ("整批" + formatCareActionLabel(a.key))
+            : formatActionLabel(a.key);
           if (a.ok) {
-            lines.push(ts + "自己农场 " + label + "：" + (a.beforeCount || 0) + " → " + (a.afterCount || 0));
+            var extra = [];
+            if (a.mode === "batch_land_exp_check") {
+              extra.push("请求 " + (a.requestCount || 0) + " 次");
+              extra.push("本次地块 " + (a.batchSize || 0));
+              extra.push("处理 " + (a.processedCount || 0) + "/" + (a.plannedCount || 0));
+              if (a.expLimitReached) {
+                extra.push("整批后无经验，判定到顶");
+              }
+            }
+            lines.push(ts + "自己农场 " + label + "：" + (a.beforeCount || 0) + " → " + (a.afterCount || 0) + (extra.length ? "，" + extra.join("，") : ""));
           } else {
-            lines.push(ts + "自己农场 " + label + "：失败 " + (a.error || ""));
+            var reason = a.error || a.reason || "";
+            lines.push(ts + "自己农场 " + label + "：失败 " + reason);
           }
         });
+        if (own.tasks.careExpLimitReached) {
+          var careInfo = own.tasks.careExpLimitInfo || {};
+          lines.push(ts + "共享经验上限：已触发，暂停后续打理" + (careInfo.landId != null ? "（地块" + careInfo.landId + "）" : ""));
+        }
       }
 
       // 自动种植
@@ -1104,6 +1134,9 @@ import {
     if (state.nextRunAt) parts.push("下次: " + formatDateTime(state.nextRunAt));
     if (state.lastFinishedAt) parts.push("上次完成: " + formatDateTime(state.lastFinishedAt));
     if (state.lastError) parts.push("最近错误: " + state.lastError);
+    if (state.careExpLimitState && state.careExpLimitState.dateKey) {
+      parts.push("打理经验已满: " + state.careExpLimitState.dateKey);
+    }
     txtAutoFarmState.textContent = parts.join(" · ");
     logAutoFarm.textContent = buildAutoFarmLogLines(state).join("\n");
   }

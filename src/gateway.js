@@ -43,6 +43,7 @@ const FARM_CONFIG_DEFAULT = {
   autoFarmRefreshFriendList: true,
   autoFarmReturnHome: true,
   autoFarmStopOnError: false,
+  autoFarmStopCareWhenNoExp: false,
   autoFarmPlantMode: "none",
   autoFarmPlantSource: "auto",
   autoFarmPlantSelectedSeedKey: "",

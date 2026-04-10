@@ -228,6 +228,196 @@ async function clickMatureEffect(session, callGameCtl, landId, opts) {
   ]);
 }
 
+async function waterSingleLand(session, callGameCtl, landId, opts) {
+  return await callGameCtl(session, "gameCtl.waterSingleLand", [
+    landId,
+    withSilent(opts),
+  ]);
+}
+
+async function killBugSingleLand(session, callGameCtl, landId, opts) {
+  return await callGameCtl(session, "gameCtl.killBugSingleLand", [
+    landId,
+    withSilent(opts),
+  ]);
+}
+
+async function eraseGrassSingleLand(session, callGameCtl, landId, opts) {
+  return await callGameCtl(session, "gameCtl.eraseGrassSingleLand", [
+    landId,
+    withSilent(opts),
+  ]);
+}
+
+async function waterLands(session, callGameCtl, landIds, opts) {
+  return await callGameCtl(session, "gameCtl.waterLands", [
+    Array.isArray(landIds) ? landIds : [landIds],
+    withSilent(opts),
+  ]);
+}
+
+async function killBugLands(session, callGameCtl, landIds, opts) {
+  return await callGameCtl(session, "gameCtl.killBugLands", [
+    Array.isArray(landIds) ? landIds : [landIds],
+    withSilent(opts),
+  ]);
+}
+
+async function eraseGrassLands(session, callGameCtl, landIds, opts) {
+  return await callGameCtl(session, "gameCtl.eraseGrassLands", [
+    Array.isArray(landIds) ? landIds : [landIds],
+    withSilent(opts),
+  ]);
+}
+
+function getActionableLandIds(status, key) {
+  const landIds = status && status.landIds && status.landIds[key];
+  const list = Array.isArray(landIds) ? landIds : [];
+  const seen = new Set();
+  const out = [];
+  for (let i = 0; i < list.length; i += 1) {
+    const landId = toPositiveNumber(list[i]);
+    if (landId == null || seen.has(landId)) continue;
+    seen.add(landId);
+    out.push(landId);
+  }
+  return out;
+}
+
+function getCareActionExecutor(key) {
+  if (key === "water") {
+    return {
+      op: "WATER",
+      invoke: waterLands,
+    };
+  }
+  if (key === "eraseGrass") {
+    return {
+      op: "ERASE_GRASS",
+      invoke: eraseGrassLands,
+    };
+  }
+  if (key === "killBug") {
+    return {
+      op: "KILL_BUG",
+      invoke: killBugLands,
+    };
+  }
+  throw new Error("unknown care action key: " + key);
+}
+
+async function runBatchLandCareTask(session, callGameCtl, spec, statusBefore, opts) {
+  const beforeCount = getWorkCount(statusBefore, spec.key);
+  const landIds = getActionableLandIds(statusBefore, spec.key);
+  const requestTimeoutMs = opts && opts.timeoutMs != null ? opts.timeoutMs : 2500;
+  const expTimeoutMs = opts && opts.expTimeoutMs != null ? opts.expTimeoutMs : 1800;
+  const expPollMs = opts && opts.expPollMs != null ? opts.expPollMs : 60;
+  const expSettleMs = opts && opts.expSettleMs != null ? opts.expSettleMs : 120;
+  const attempts = [];
+  let expLimitReached = false;
+  let expLimitResult = null;
+  let processedCount = 0;
+  let successCount = 0;
+  let currentStatus = statusBefore;
+  let hasUpdatedStatus = false;
+  let needsFinalStatusRefresh = false;
+
+  if (beforeCount > 0 && landIds.length === 0) {
+    return {
+      ok: false,
+      key: spec.key,
+      op: spec.op,
+      mode: "batch_land_exp_check",
+      reason: "actionable_land_ids_missing",
+      beforeCount,
+      afterCount: beforeCount,
+      batchSize: 0,
+      batchCount: 0,
+      processedBatchCount: 0,
+      plannedCount: 0,
+      processedCount: 0,
+      successCount: 0,
+      attempts,
+      nextStatus: statusBefore,
+      expLimitReached: false,
+      expLimitLandId: null,
+      expLimitResult: null,
+      requestCount: 0,
+    };
+  }
+
+  try {
+    const result = await spec.invoke(session, callGameCtl, landIds, {
+      timeoutMs: requestTimeoutMs,
+      expTimeoutMs,
+      expPollMs,
+      expSettleMs,
+    });
+    processedCount = landIds.length;
+    if (result && result.afterStatus) {
+      currentStatus = result.afterStatus;
+      hasUpdatedStatus = true;
+      needsFinalStatusRefresh = false;
+    } else {
+      needsFinalStatusRefresh = true;
+    }
+    if (result && result.ok) {
+      successCount = landIds.length;
+    }
+    attempts.push({
+      ok: !!(result && result.ok),
+      landIds: landIds.slice(),
+      reason: result && result.reason ? result.reason : null,
+      expDelta: result && result.expDelta != null ? result.expDelta : null,
+      noExpGain: !!(result && result.noExpGain),
+      result,
+    });
+    if (result && result.ok && result.noExpGain) {
+      expLimitReached = true;
+      expLimitResult = result;
+    }
+  } catch (error) {
+    processedCount = landIds.length;
+    needsFinalStatusRefresh = true;
+    attempts.push({
+      ok: false,
+      landIds: landIds.slice(),
+      error: toErrorMessage(error),
+    });
+  }
+
+  const statusAfter = hasUpdatedStatus && !needsFinalStatusRefresh && currentStatus && currentStatus.workCounts
+    ? currentStatus
+    : await getFarmStatus(session, callGameCtl, {
+        includeGrids: false,
+        includeLandIds: true,
+      });
+  const afterCount = getWorkCount(statusAfter, spec.key);
+  const ok = attempts.every((item) => !!(item && item.ok));
+
+  return {
+    ok,
+    key: spec.key,
+    op: spec.op,
+    mode: "batch_land_exp_check",
+    reason: null,
+    beforeCount,
+    afterCount,
+    batchSize: landIds.length,
+    batchCount: landIds.length > 0 ? 1 : 0,
+    processedBatchCount: attempts.length,
+    plannedCount: landIds.length,
+    processedCount,
+    successCount,
+    attempts,
+    nextStatus: statusAfter,
+    expLimitReached,
+    expLimitLandId: null,
+    expLimitResult,
+    requestCount: attempts.length,
+  };
+}
+
 function collectMatureLandIds(status) {
   const grids = Array.isArray(status && status.grids) ? status.grids : [];
   const seen = new Set();
@@ -426,9 +616,10 @@ function resolvePrioritySeedTarget(catalog, source, mode) {
 
 async function runCurrentFarmOneClickTasks(session, callGameCtl, opts) {
   const actionWaitMs = Math.max(0, Number(opts && opts.actionWaitMs) || 0);
+  const useBatchCareExpCheck = !!(opts && opts.stopCareWhenNoExp);
   const statusBefore = await getFarmStatus(session, callGameCtl, {
     includeGrids: false,
-    includeLandIds: false,
+    includeLandIds: useBatchCareExpCheck,
   });
   const farmType = statusBefore && statusBefore.farmType ? statusBefore.farmType : "unknown";
   const includeCollect = !opts || opts.includeCollect !== false;
@@ -447,6 +638,8 @@ async function runCurrentFarmOneClickTasks(session, callGameCtl, opts) {
   const actions = [];
   let currentStatus = statusBefore;
   let specialCollect = null;
+  let careExpLimitReached = false;
+  let careExpLimitInfo = null;
 
   for (let i = 0; i < specs.length; i += 1) {
     const spec = specs[i];
@@ -463,7 +656,7 @@ async function runCurrentFarmOneClickTasks(session, callGameCtl, opts) {
           if (specialCollect.candidateCount > 0) {
             currentStatus = await getFarmStatus(session, callGameCtl, {
               includeGrids: false,
-              includeLandIds: false,
+              includeLandIds: useBatchCareExpCheck,
             });
           }
         } catch (error) {
@@ -478,6 +671,31 @@ async function runCurrentFarmOneClickTasks(session, callGameCtl, opts) {
     }
 
     try {
+      if (useBatchCareExpCheck && spec.key !== "collect") {
+        const careSpec = {
+          key: spec.key,
+          ...getCareActionExecutor(spec.key),
+        };
+        const batchAction = await runBatchLandCareTask(session, callGameCtl, careSpec, currentStatus, opts);
+        currentStatus = batchAction.nextStatus || currentStatus;
+        const { nextStatus, ...actionEntry } = batchAction;
+        actions.push(actionEntry);
+        if (batchAction.expLimitReached) {
+          careExpLimitReached = true;
+          careExpLimitInfo = {
+            key: spec.key,
+            op: careSpec.op,
+            landId: batchAction.expLimitLandId,
+            result: batchAction.expLimitResult,
+          };
+          break;
+        }
+        if (!batchAction.ok && opts && opts.stopOnError) {
+          break;
+        }
+        continue;
+      }
+
       const trigger = await triggerOneClickOperation(session, callGameCtl, spec.op, {
         includeBefore: false,
         includeAfter: false,
@@ -487,7 +705,7 @@ async function runCurrentFarmOneClickTasks(session, callGameCtl, opts) {
       }
       currentStatus = await getFarmStatus(session, callGameCtl, {
         includeGrids: false,
-        includeLandIds: false,
+        includeLandIds: useBatchCareExpCheck,
       });
       const afterCount = getWorkCount(currentStatus, spec.key);
       actions.push({
@@ -510,7 +728,7 @@ async function runCurrentFarmOneClickTasks(session, callGameCtl, opts) {
           if (specialCollect.candidateCount > 0) {
             currentStatus = await getFarmStatus(session, callGameCtl, {
               includeGrids: false,
-              includeLandIds: false,
+              includeLandIds: useBatchCareExpCheck,
             });
           }
         } catch (error) {
@@ -541,7 +759,7 @@ async function runCurrentFarmOneClickTasks(session, callGameCtl, opts) {
           if (specialCollect.candidateCount > 0) {
             currentStatus = await getFarmStatus(session, callGameCtl, {
               includeGrids: false,
-              includeLandIds: false,
+              includeLandIds: useBatchCareExpCheck,
             });
           }
         } catch (supplementError) {
@@ -558,6 +776,9 @@ async function runCurrentFarmOneClickTasks(session, callGameCtl, opts) {
 
   return {
     farmType,
+    careMode: useBatchCareExpCheck && farmType === "own" ? "batch_land_exp_check" : "one_click",
+    careExpLimitReached,
+    careExpLimitInfo,
     before: summarizeFarmStatus(statusBefore),
     after: summarizeFarmStatus(currentStatus),
     actions,
@@ -731,35 +952,6 @@ async function autoPlant(session, callGameCtl, opts) {
   };
 }
 
-/**
- * QQ 端直接调用客户端 gameCtl.autoPlant，所有逻辑在游戏上下文内完成，
- * 避免多次 WebSocket 往返导致的超时问题。
- */
-async function runClientAutoPlant(session, callGameCtl, opts) {
-  const plantMode = normalizeAutoPlantMode(opts && opts.autoPlantMode);
-  const plantSource = normalizeAutoPlantSource(opts && opts.autoPlantSource, opts && opts.autoPlantMode);
-  const selectedKey = readAutoPlantSelectedSeedKey(opts);
-
-  // 把 "backpack:123" / "shop:456" 格式拆出原始 ID
-  let selectedSeedId = undefined;
-  if (selectedKey) {
-    const match = selectedKey.match(/^(?:backpack|shop):(.+)$/i);
-    selectedSeedId = match ? match[1].trim() : selectedKey;
-  }
-
-  return await callGameCtl(session, "gameCtl.autoPlant", [{
-    mode: plantMode,
-    source: plantSource,
-    selectedSeedId,
-    buyWaitMs: opts && opts.buyWaitMs,
-    waitForResult: true,
-    timeoutMs: opts && opts.timeoutMs,
-    pollMs: opts && opts.pollMs,
-    intervalMs: opts && opts.intervalMs,
-    stopOnError: !!(opts && opts.stopOnError),
-  }]);
-}
-
 async function runOwnFarmAutomation(session, callGameCtl, opts) {
   const enterWaitMs = Math.max(0, Number(opts && opts.enterWaitMs) || 0);
   const actionWaitMs = Math.max(0, Number(opts && opts.actionWaitMs) || 0);
@@ -784,9 +976,13 @@ async function runOwnFarmAutomation(session, callGameCtl, opts) {
     includeEraseGrass: !opts || opts.includeEraseGrass !== false,
     includeKillBug: !opts || opts.includeKillBug !== false,
     includeSpecialCollect: !opts || opts.includeSpecialCollect !== false,
+    stopCareWhenNoExp: !!(opts && opts.stopCareWhenNoExp),
     actionWaitMs: opts && opts.actionWaitMs,
     timeoutMs: opts && opts.timeoutMs,
     pollMs: opts && opts.pollMs,
+    expTimeoutMs: opts && opts.expTimeoutMs,
+    expPollMs: opts && opts.expPollMs,
+    expSettleMs: opts && opts.expSettleMs,
     stopOnError: !!(opts && opts.stopOnError),
   });
 
@@ -1020,6 +1216,7 @@ async function runAutoFarmCycle({ session, callGameCtl, options }) {
       includeWater: opts.includeWater !== false,
       includeEraseGrass: opts.includeEraseGrass !== false,
       includeKillBug: opts.includeKillBug !== false,
+      stopCareWhenNoExp: !!opts.stopCareWhenNoExp,
       autoPlantMode: opts.autoPlantMode || "none",
       autoPlantSource: opts.autoPlantSource || "auto",
       autoPlantSelectedSeedKey: opts.autoPlantSelectedSeedKey || "",
@@ -1030,6 +1227,9 @@ async function runAutoFarmCycle({ session, callGameCtl, options }) {
       buyWaitMs: opts.buyWaitMs,
       timeoutMs: opts.timeoutMs,
       pollMs: opts.pollMs,
+      expTimeoutMs: opts.expTimeoutMs,
+      expPollMs: opts.expPollMs,
+      expSettleMs: opts.expSettleMs,
       intervalMs: opts.intervalMs,
       stopOnError: !!opts.stopOnError,
     });

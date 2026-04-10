@@ -25,6 +25,21 @@ function toInt(value, defaultValue, min, max) {
   return Math.min(max, Math.max(min, fallback));
 }
 
+function getLocalDateKey(dateLike = Date.now()) {
+  const date = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function formatCareActionLabel(key) {
+  if (key === "water") return "浇水";
+  if (key === "eraseGrass") return "除草";
+  if (key === "killBug") return "杀虫";
+  return key ? String(key) : "打理";
+}
+
 function normalizeAutoFarmConfig(raw) {
   const src = raw && typeof raw === "object" ? raw : {};
   const autoFarmPlantMode = normalizeAutoPlantMode(src.autoFarmPlantMode);
@@ -40,6 +55,7 @@ function normalizeAutoFarmConfig(raw) {
     autoFarmRefreshFriendList: toBool(src.autoFarmRefreshFriendList, true),
     autoFarmReturnHome: toBool(src.autoFarmReturnHome, true),
     autoFarmStopOnError: toBool(src.autoFarmStopOnError, false),
+    autoFarmStopCareWhenNoExp: toBool(src.autoFarmStopCareWhenNoExp, false),
     autoFarmPlantMode,
     autoFarmPlantSource,
     autoFarmPlantSelectedSeedKey: readAutoPlantSelectedSeedKey(src),
@@ -87,6 +103,7 @@ class AutoFarmManager {
     this.lastError = null;
     this.lastResult = null;
     this.recentEvents = [];
+    this.careExpLimitState = null;
     this.config = normalizeAutoFarmConfig({});
   }
 
@@ -96,6 +113,7 @@ class AutoFarmManager {
   }
 
   getState() {
+    this._pruneCareExpLimit(Date.now());
     return {
       running: this.running,
       busy: this.busy,
@@ -106,6 +124,7 @@ class AutoFarmManager {
       lastFriendRunAt: this.lastFriendRunAt ? new Date(this.lastFriendRunAt).toISOString() : null,
       lastError: this.lastError,
       lastResult: this.lastResult,
+      careExpLimitState: this.careExpLimitState ? { ...this.careExpLimitState } : null,
       config: { ...this.config },
       recentEvents: [...this.recentEvents],
       runtime: this.getTransportState(),
@@ -209,6 +228,46 @@ class AutoFarmManager {
     return { ownDue, friendDue };
   }
 
+  _pruneCareExpLimit(now) {
+    if (!this.careExpLimitState) return;
+    const today = getLocalDateKey(now);
+    if (this.careExpLimitState.dateKey !== today) {
+      this.careExpLimitState = null;
+    }
+  }
+
+  _updateCareExpLimitFromResult(result, now) {
+    this._pruneCareExpLimit(now);
+    const tasks = result && result.ownFarm && result.ownFarm.tasks ? result.ownFarm.tasks : null;
+    if (!tasks || !tasks.careExpLimitReached) return;
+    const info = tasks.careExpLimitInfo && typeof tasks.careExpLimitInfo === "object"
+      ? tasks.careExpLimitInfo
+      : {};
+    const nextState = {
+      dateKey: getLocalDateKey(now),
+      detectedAt: new Date(now).toISOString(),
+      key: info.key || null,
+      landId: info.landId != null ? info.landId : null,
+      expDelta: info.result && info.result.expDelta != null ? info.result.expDelta : null,
+      expBefore: info.result && info.result.expBefore != null ? info.result.expBefore : null,
+      expAfter: info.result && info.result.expAfter != null ? info.result.expAfter : null,
+      reason: info.result && info.result.reason ? info.result.reason : "no_exp_gain",
+    };
+    const prev = this.careExpLimitState;
+    const changed = !prev
+      || prev.dateKey !== nextState.dateKey
+      || prev.key !== nextState.key
+      || prev.landId !== nextState.landId;
+    this.careExpLimitState = nextState;
+    if (changed) {
+      this._pushEvent(
+        "info",
+        `共享经验疑似到上限，暂停打理: ${formatCareActionLabel(nextState.key)}${nextState.landId != null ? ` 地块${nextState.landId}` : ""}`,
+        nextState,
+      );
+    }
+  }
+
   async _tick() {
     if (!this.running) return;
     if (this.busy) {
@@ -245,10 +304,18 @@ class AutoFarmManager {
       "getFriendList",
       "enterOwnFarm",
       "enterFriendFarm",
+      "getSelfExp",
+      "waitForSelfExpChange",
       "triggerOneClickOperation",
       "getSeedList",
       "getShopSeedList",
       "buyShopGoods",
+      "waterSingleLand",
+      "killBugSingleLand",
+      "eraseGrassSingleLand",
+      "waterLands",
+      "killBugLands",
+      "eraseGrassLands",
       "clickMatureEffect",
       "plantSingleLand",
       "plantSeedsOnLands",
@@ -261,6 +328,7 @@ class AutoFarmManager {
 
   async _runCycle(force, dueFlags) {
     const now = Date.now();
+    this._pruneCareExpLimit(now);
     const due = dueFlags || this._getDueFlags(now, force);
     if (!due.ownDue && !due.friendDue) {
       return this.getState();
@@ -277,9 +345,15 @@ class AutoFarmManager {
       const injectState = await this.ensureGameCtlImpl(session);
       const transportState = this.getTransportState();
       const isQqRuntime = !!(transportState && transportState.resolvedTarget === "qq_ws");
+      const careExpLimitState = this.config.autoFarmStopCareWhenNoExp ? this.careExpLimitState : null;
+      const skipCareBecauseNoExp = !!careExpLimitState;
       const cycleOpts = {
         ownFarmEnabled: due.ownDue,
         friendStealEnabled: due.friendDue,
+        includeWater: !skipCareBecauseNoExp,
+        includeEraseGrass: !skipCareBecauseNoExp,
+        includeKillBug: !skipCareBecauseNoExp,
+        stopCareWhenNoExp: !!this.config.autoFarmStopCareWhenNoExp,
         autoPlantMode: this.config.autoFarmPlantMode || "none",
         autoPlantSource: this.config.autoFarmPlantSource || "auto",
         autoPlantSelectedSeedKey: this.config.autoFarmPlantSelectedSeedKey || "",
@@ -296,6 +370,7 @@ class AutoFarmManager {
         callGameCtl: this.callGameCtlImpl.bind(this),
         options: cycleOpts,
       });
+      this._updateCareExpLimitFromResult(result, now);
       this.lastFinishedAt = new Date().toISOString();
       this.lastResult = {
         injected: injectState.injected,
@@ -309,6 +384,7 @@ class AutoFarmManager {
           injected: injectState.injected,
           ownActions: Array.isArray(result?.ownFarm?.tasks?.actions) ? result.ownFarm.tasks.actions.length : 0,
           friendVisits: Array.isArray(result?.friendSteal?.visits) ? result.friendSteal.visits.length : 0,
+          skipCareBecauseNoExp,
         },
       );
       return this.getState();

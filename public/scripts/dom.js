@@ -38,6 +38,7 @@ export const dom = {
   autoEnterWaitMs: document.getElementById("autoEnterWaitMs"),
   autoActionWaitMs: document.getElementById("autoActionWaitMs"),
   autoStopOnError: document.getElementById("autoStopOnError"),
+  autoStopCareWhenNoExp: document.getElementById("autoStopCareWhenNoExp"),
   autoPlantMode: document.getElementById("autoPlantMode"),
   autoPlantSource: document.getElementById("autoPlantSource"),
   autoPlantSelectedWrap: document.getElementById("autoPlantSelectedWrap"),

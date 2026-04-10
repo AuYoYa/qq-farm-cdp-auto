@@ -229,7 +229,7 @@
               <input type="checkbox" id="autoOwnEnabled" />
               <div>
                 <strong>自己农场</strong>
-                <small>定时执行一键收获、浇水、除草、杀虫。</small>
+                <small>默认一键处理；开启经验上限停止后，打理类动作会改成整批一次请求检测。</small>
               </div>
             </label>
             <label class="check-card">
@@ -258,6 +258,13 @@
               <div>
                 <strong>出错后结束当前轮次</strong>
                 <small>适合调试阶段，避免错误状态下继续连跑。</small>
+              </div>
+            </label>
+            <label class="check-card">
+              <input type="checkbox" id="autoStopCareWhenNoExp" />
+              <div>
+                <strong>经验满后停止打理</strong>
+                <small>自己农场的浇水、除草、杀虫改为整批执行；首次整批不再加经验后，本日后续轮次跳过打理。</small>
               </div>
             </label>
           </div>
